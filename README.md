@@ -1,19 +1,76 @@
-# MedMatch — クローズドβ向けMVP
+# MedMatch — JREC-IN型UI 全体試作版
 
-医学生・病院・運営の3ロールを持つ、Supabase接続型の静的Webアプリです。
+医学生と病院をつなぐ双方向型の公募・スカウト・応募管理サービスのフロントエンド試作です。
 
-## 最初にやること
-1. GitHubへこのフォルダ一式をアップロード
-2. GitHub PagesをGitHub Actionsで有効化
-3. Supabaseプロジェクトを作成
-4. `supabase/migrations/001_init.sql` をSQL Editorで実行
-5. `config.js` にProject URLとPublishable keyを設定してGitHubへ反映
-6. Supabase AuthのSite URL / Redirect URLをGitHub Pages URLに設定
-7. 医学生・病院を新規登録
-8. 管理者ユーザーを作り `supabase/ADMIN_SETUP.sql` を実行
+## この版の設計方針
+
+プロフィール中心のSNS型UIではなく、JREC-IN Portalのような「検索・公募・応募管理」を中心にしています。
+
+### 医学生側
+- 公募検索
+- 検索条件の保存
+- お気に入り
+- 応募管理
+- スカウト
+- メッセージ
+- プロフィール
+- 大学名の入力候補
+- 学年・卒業予定年度のプルダウン
+
+### 病院側
+- ダッシュボード
+- 公募一覧
+- 新規公募登録
+- 医学生検索
+- お気に入り学生
+- スカウト
+- 応募者管理
+- 病院情報管理
+
+### 管理者側
+- ダッシュボード
+- 病院承認
+- 公募承認
+- ユーザー管理
+- 公募監視
+- 通報・問い合わせ
+- お知らせ・システム設定
+
+## GitHub Pagesへの配置
+
+このZIPを展開し、以下の3ファイルをリポジトリ直下に配置してください。
+
+```text
+/
+├── index.html
+├── styles.css
+└── app.js
+```
+
+GitHub Pagesがリポジトリ直下または `/docs` を公開元にしている場合は、その公開元に3ファイルを配置します。
 
 ## 注意
-- `sb_secret_...` や service-role key はGitHubへ絶対に置かないでください。
-- ブラウザに置いてよいのはPublishable keyです。
-- `privacy.html` と `terms.html` はドラフトです。一般公開前に法務確認が必要です。
-- 本番前に独自SMTP、MFA、バックアップ、監視、問い合わせ窓口を整備してください。
+
+この配布版はUI・操作フローの試作です。検索条件、プロフィール、お気に入り等の一部はブラウザの `localStorage` に保存します。
+
+本番版では、以下をSupabaseに接続してください。
+
+- Auth: 医学生 / 病院 / 管理者の認証
+- `student_profiles`
+- `hospital_profiles`
+- `job_postings`
+- `applications`
+- `scouts`
+- `messages`
+- `favorites`
+- `saved_searches`
+- `hospital_approvals`
+- `job_approvals`
+
+## 既存Supabase版への統合
+
+既存環境にSupabase認証や管理者承認ロジックがある場合は、そのコードを削除せず、
+この版のHTML構造・CSS・画面レンダリングをUI層として統合してください。
+
+特に `app.js` を丸ごと置換すると既存Supabase処理が消える可能性があります。
+既存リポジトリの `app.js` / Supabase処理を保持したまま統合するには、現在のリポジトリ一式を基にマージしてください。
