@@ -1,0 +1,176 @@
+:root{
+  --bg:#f6f8fb;
+  --card:#ffffff;
+  --text:#142033;
+  --muted:#6b7587;
+  --line:#e7ebf0;
+  --accent:#2e6fe8;
+  --accent-soft:#eaf1ff;
+  --success:#1e9b63;
+  --warning:#c88615;
+  --danger:#cf4454;
+  --shadow:0 10px 30px rgba(22,35,60,.07);
+  --radius:18px;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,sans-serif;
+  background:var(--bg);
+  color:var(--text);
+}
+button,input,select,textarea{font:inherit}
+button{cursor:pointer}
+.topbar{
+  height:72px;
+  display:flex;
+  align-items:center;
+  gap:24px;
+  padding:0 24px;
+  background:#fff;
+  border-bottom:1px solid var(--line);
+  position:sticky;
+  top:0;
+  z-index:10;
+}
+.brand{display:flex;align-items:center;gap:12px;min-width:270px}
+.logo{
+  width:40px;height:40px;border-radius:12px;
+  display:grid;place-items:center;
+  background:linear-gradient(135deg,#2e6fe8,#5d8df0);
+  color:white;font-weight:800;font-size:20px;
+}
+.brand-name{font-weight:800;font-size:18px;line-height:1}
+.brand-sub{font-size:11px;color:var(--muted);margin-top:5px}
+.role-switch{
+  display:flex;
+  gap:6px;
+  background:#f1f4f8;
+  padding:5px;
+  border-radius:12px;
+  margin-left:auto;
+}
+.role-btn{
+  border:0;background:transparent;color:var(--muted);
+  padding:8px 14px;border-radius:9px;font-weight:700;
+}
+.role-btn.active{background:#fff;color:var(--accent);box-shadow:0 2px 8px rgba(0,0,0,.06)}
+.user-chip{
+  padding:9px 13px;border-radius:999px;background:#f7f8fa;
+  color:#3c4758;font-weight:700;font-size:13px;
+}
+.shell{display:grid;grid-template-columns:240px 1fr;min-height:calc(100vh - 72px)}
+.sidebar{
+  background:#fff;border-right:1px solid var(--line);
+  padding:18px 14px;
+}
+.side-group{margin-bottom:20px}
+.side-label{
+  color:#9aa3b2;font-size:11px;font-weight:800;
+  padding:7px 10px;text-transform:uppercase;letter-spacing:.06em;
+}
+.nav-item{
+  width:100%;display:flex;align-items:center;gap:10px;
+  border:0;background:transparent;color:#536074;
+  padding:11px 12px;border-radius:10px;text-align:left;font-weight:700;
+  margin:2px 0;
+}
+.nav-item:hover{background:#f5f7fa}
+.nav-item.active{background:var(--accent-soft);color:var(--accent)}
+.nav-icon{width:22px;text-align:center}
+.main{padding:28px;max-width:1440px;width:100%;margin:0 auto}
+.page-head{
+  display:flex;justify-content:space-between;gap:20px;align-items:flex-end;
+  margin-bottom:22px;
+}
+.page-title{font-size:28px;font-weight:850;letter-spacing:-.02em}
+.page-sub{color:var(--muted);margin-top:6px;font-size:14px}
+.actions{display:flex;gap:10px;flex-wrap:wrap}
+.btn{
+  border:1px solid var(--line);background:#fff;color:#334055;
+  padding:10px 15px;border-radius:10px;font-weight:800;
+}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.success{background:var(--success);border-color:var(--success);color:#fff}
+.btn.danger{background:var(--danger);border-color:var(--danger);color:#fff}
+.grid{display:grid;gap:16px}
+.grid.cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.grid.cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.grid.cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.card{
+  background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:var(--shadow);padding:20px;
+}
+.kpi-label{color:var(--muted);font-size:13px;font-weight:700}
+.kpi-value{font-size:30px;font-weight:850;margin-top:8px;letter-spacing:-.03em}
+.kpi-foot{font-size:12px;color:var(--success);margin-top:7px;font-weight:700}
+.section-title{font-size:17px;font-weight:850;margin:0 0 15px}
+.muted{color:var(--muted)}
+.small{font-size:12px}
+.list{display:flex;flex-direction:column;gap:10px}
+.list-row{
+  display:flex;align-items:center;justify-content:space-between;gap:14px;
+  padding:13px 0;border-bottom:1px solid var(--line);
+}
+.list-row:last-child{border-bottom:0}
+.avatar{
+  width:42px;height:42px;border-radius:12px;
+  background:#eef3ff;color:var(--accent);display:grid;place-items:center;font-weight:850;
+}
+.row-main{display:flex;align-items:center;gap:12px;min-width:0}
+.row-title{font-weight:800}
+.row-sub{color:var(--muted);font-size:12px;margin-top:4px}
+.badge{
+  display:inline-flex;align-items:center;padding:5px 8px;border-radius:999px;
+  font-size:11px;font-weight:850;background:#f0f2f5;color:#5f6b7d;
+}
+.badge.blue{background:#eaf1ff;color:#2e6fe8}
+.badge.green{background:#e9f8f1;color:#1e8b5c}
+.badge.orange{background:#fff3df;color:#ad7115}
+.badge.red{background:#fdecef;color:#bb3f4d}
+.search-panel{
+  display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;
+  margin-bottom:16px;
+}
+.field label{display:block;font-size:12px;color:var(--muted);font-weight:800;margin-bottom:6px}
+.field input,.field select,.field textarea{
+  width:100%;border:1px solid #dfe4ea;background:#fff;padding:11px 12px;border-radius:10px;
+  color:var(--text);outline:none;
+}
+.field textarea{min-height:110px;resize:vertical}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:#8fb2f6;box-shadow:0 0 0 3px #eef4ff}
+.field-help{font-size:11px;color:#8a94a5;margin-top:5px;line-height:1.5}
+.hospital-card,.student-card{
+  display:flex;justify-content:space-between;gap:20px;padding:18px;
+  border:1px solid var(--line);border-radius:14px;background:#fff;
+}
+.hospital-meta,.student-meta{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}
+.metric-row{display:flex;gap:20px;flex-wrap:wrap;margin-top:12px}
+.metric strong{display:block;font-size:18px}
+.metric span{font-size:11px;color:var(--muted)}
+.progress{height:8px;background:#eef1f4;border-radius:999px;overflow:hidden;margin-top:8px}
+.progress > span{display:block;height:100%;background:var(--accent);border-radius:999px}
+.kanban{display:grid;grid-template-columns:repeat(4,minmax(230px,1fr));gap:14px;overflow:auto}
+.kanban-col{background:#f1f4f8;border-radius:14px;padding:12px;min-height:280px}
+.kanban-head{font-weight:850;margin:2px 2px 10px;display:flex;justify-content:space-between}
+.kanban-card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:13px;margin-bottom:10px;box-shadow:0 4px 12px rgba(20,32,51,.04)}
+.table-wrap{overflow:auto}
+table{width:100%;border-collapse:collapse;min-width:760px}
+th,td{padding:13px 12px;text-align:left;border-bottom:1px solid var(--line);font-size:13px}
+th{color:#7b8596;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+td strong{font-weight:800}
+.notice{background:#eef4ff;border:1px solid #dbe8ff;color:#315ea8;border-radius:12px;padding:13px 15px;font-size:13px;font-weight:700;margin-bottom:16px}
+.modal-backdrop{position:fixed;inset:0;background:rgba(18,29,47,.45);display:none;align-items:center;justify-content:center;padding:20px;z-index:100}
+.modal-backdrop.show{display:flex}
+.modal{background:#fff;border-radius:18px;padding:22px;width:min(560px,100%);box-shadow:0 30px 70px rgba(0,0,0,.2)}
+.modal h3{margin:0 0 8px}
+.modal-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:18px}
+.toast{position:fixed;right:24px;bottom:24px;background:#152237;color:#fff;padding:12px 16px;border-radius:11px;box-shadow:0 12px 30px rgba(0,0,0,.18);opacity:0;transform:translateY(10px);transition:.2s;pointer-events:none;z-index:120;font-weight:700;font-size:13px}
+.toast.show{opacity:1;transform:translateY(0)}
+.profile-actions{margin-top:16px;display:flex;justify-content:flex-end}
+@media (max-width:1000px){
+  .shell{grid-template-columns:76px 1fr}.sidebar{padding:16px 9px}.nav-item{justify-content:center}.nav-text,.side-label{display:none}.grid.cols-4{grid-template-columns:repeat(2,minmax(0,1fr))}.search-panel{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (max-width:700px){
+  .topbar{padding:0 12px;height:auto;min-height:68px;flex-wrap:wrap;padding-top:10px;padding-bottom:10px}.brand{min-width:auto}.brand-sub{display:none}.user-chip{display:none}.role-switch{order:3;width:100%;justify-content:center}.shell{display:block}.sidebar{position:sticky;top:118px;z-index:8;border-right:0;border-bottom:1px solid var(--line);display:flex;overflow:auto;padding:8px;background:#fff}.side-group{display:flex;margin:0}.nav-item{min-width:48px}.main{padding:18px 14px}.page-head{align-items:flex-start;flex-direction:column}.grid.cols-4,.grid.cols-3,.grid.cols-2,.search-panel{grid-template-columns:1fr}.hospital-card,.student-card{flex-direction:column}.kanban{grid-template-columns:repeat(4,260px)}
+}
