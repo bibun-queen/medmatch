@@ -1,29 +1,23 @@
 # RLS / 権限テスト
 
-公開前に最低限、別ブラウザ・別アカウントで次を確認する。
-
 ## 医学生A
-- 医学生Bの `student_profiles` を直接取得できない
-- 医学生B宛のscoutを取得できない
-- 医学生Bのapplicationを取得できない
-- application作成時に `status=offered` を指定できない
-- verification document作成時に `status=approved` を指定できない
+- 医学生Bの非公開プロフィールを取得できない
+- 自分以外の応募・スカウトを取得できない
+- 募集へ応募できる
+- 応募作成時に `status=accepted` を指定できない
 
 ## 病院A
-- 審査前に `search_students` が失敗する
-- 審査後に検索可能になる
-- 病院Bのscout/applicationを取得できない
-- 自院の `status=verified` を直接更新できない
-- scout作成時に `status=interested` を指定できない
+- 未承認時は学生検索ができない
+- 承認後、`is_searchable=true` の学生だけ取得できる
+- 他病院の募集を更新できない
+- 他病院の応募・スカウトを取得できない
 
-## 運営
-- 全病院・全学生の管理対象データを取得できる
+## 管理者
+- 全病院を取得できる
 - 病院を承認 / 却下できる
-- 学生を停止 / 有効化できる
-- 確認書類を承認 / 却下できる
-- audit_logsを閲覧できる
+- ユーザーを停止 / 有効化できる
 
-## 退会
-- 学生本人だけが `delete-account` を利用できる
-- 病院アカウントは自己削除できない
-- Secret keyがブラウザのNetwork / Sourceに存在しない
+## ブラウザ
+- Source / Network に `service_role` や Secret key が存在しない
+- `src/main.js` が404になっていない
+- Supabase REST/Authリクエストが403/401になった場合、RLSとログイン状態を確認する

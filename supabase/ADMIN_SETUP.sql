@@ -1,11 +1,7 @@
--- 1) First create the admin user in Supabase Authentication > Users.
--- 2) Replace the email below and run this in SQL Editor.
--- Admin cannot be self-assigned from the client.
+-- 1) 先に通常の医学生アカウントとして管理者用メールアドレスを登録してください。
+-- 2) Supabase Dashboard > Authentication > Users で対象ユーザーUUIDを確認。
+-- 3) 下の UUID を差し替えて実行。
 
 update public.profiles
-set role = 'admin', status = 'active', display_name = '運営管理者'
-where id = (select id from auth.users where email = 'admin@example.com');
-
--- Remove the student detail row that was created by the generic auth trigger.
-delete from public.student_profiles
-where user_id = (select id from auth.users where email = 'admin@example.com');
+set role = 'admin', status = 'active'
+where id = 'REPLACE_WITH_ADMIN_USER_UUID';

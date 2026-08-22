@@ -3,17 +3,24 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="医学生と病院をつなぐ採用・見学・スカウトプラットフォーム MedMatch" />
+  <meta name="description" content="医学生と病院をつなぐ募集・見学・スカウトプラットフォーム MedMatch" />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://*.supabase.co wss://*.supabase.co; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://cdn.jsdelivr.net; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests" />
   <title>MedMatch — 医学生 × 病院</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
   <noscript>MedMatch を利用するには JavaScript を有効にしてください。</noscript>
-  <div id="root"></div>
+  <div id="root">
+    <main class="boot-screen">
+      <div class="boot-card">
+        <div class="brand-mark">M</div>
+        <h1>MedMatch</h1>
+        <p>読み込み中です。</p>
+      </div>
+    </main>
+  </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script type="module" src="./src/main.js"></script>
-  <script type="module" src="./ui-enhancements.js"></script>
 </body>
 </html>

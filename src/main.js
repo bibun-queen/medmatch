@@ -1,51 +1,360 @@
-import { configured, supabase } from './client.js';
-import * as api from './api.js';
-import { $, esc, fmtDate, csvArray, badge, statusBadge, toast } from './utils.js';
+import { CONFIG } from "../config.js";
 
-const root=$('#root');
-let session=null, profile=null, page='dashboard', hospitalCtx=null;
-const navs={student:[['dashboard','ホーム'],['hospitals','病院を探す'],['scouts','スカウト'],['applications','見学・応募'],['profile','プロフィール'],['verify','本人確認']],hospital:[['dashboard','ホーム'],['students','学生を探す'],['scouts','スカウト'],['applications','見学・応募'],['jobs','募集'],['hospital','病院情報'],['verify','在籍確認']],admin:[['dashboard','ダッシュボード'],['hospitals','病院審査'],['users','ユーザー'],['verify','本人確認'],['reports','通報'],['audit','操作ログ']]};
+const root = document.getElementById("root");
+const toastEl = document.getElementById("toast");
 
-function shell(content){const nav=navs[profile.role]||[];return `<header class="top"><div class="brand"><div class="logo">M</div>MedMatch</div><div class="spacer"></div><div class="chip">${esc(profile.display_name||session.user.email)} / ${esc(profile.role)}</div><button class="btn" data-action="logout">ログアウト</button></header><div class="layout"><aside class="side">${nav.map(([id,t])=>`<button class="nav ${page===id?'active':''}" data-page="${id}">${esc(t)}</button>`).join('')}</aside><main class="main">${content}<div class="footer"><a href="./terms.html">利用規約</a> ・ <a href="./privacy.html">プライバシーポリシー</a></div></main></div>`}
-function head(title,sub='',actions=''){return `<div class="page-head"><div><div class="title">${esc(title)}</div><div class="sub">${esc(sub)}</div></div><div class="actions">${actions}</div></div>`}
-function card(title,body){return `<div class="card"><div class="row-title" style="margin-bottom:12px">${esc(title)}</div>${body}</div>`}
-function input(name,label,value='',type='text',attrs=''){return `<div class="field"><label>${esc(label)}</label><input name="${name}" type="${type}" value="${esc(value)}" ${attrs}></div>`}
-function textarea(name,label,value=''){return `<div class="field"><label>${esc(label)}</label><textarea name="${name}">${esc(value)}</textarea></div>`}
-function setupScreen(){root.innerHTML=`<div class="hero"><div class="card"><h1>MedMatch</h1><div class="notice warning"><strong>Supabase未接続です。</strong><br>GitHub公開は成功しています。次に <code>config.js</code> の Project URL と Publishable key を設定してください。</div><p>この画面が表示されれば、HTML/CSS/JavaScriptの公開自体は正常です。</p></div></div>`}
-function authScreen(mode='login'){const signup=mode==='student'||mode==='hospital';root.innerHTML=`<div class="auth-wrap"><div class="card"><div class="brand"><div class="logo">M</div>MedMatch</div><h2>${mode==='login'?'ログイン':mode==='reset'?'パスワード再設定':mode==='student'?'医学生 新規登録':'病院 新規登録'}</h2>${mode==='login'?`<form id="authForm">${input('email','メールアドレス','','email','required autocomplete="email"')}${input('password','パスワード','','password','required autocomplete="current-password"')}<button class="btn primary" style="width:100%">ログイン</button></form><div class="actions" style="margin-top:14px"><button class="btn" data-auth="student">医学生として登録</button><button class="btn" data-auth="hospital">病院として登録</button><button class="btn" data-auth="reset">パスワードを忘れた</button></div>`:mode==='reset'?`<form id="resetForm">${input('email','登録メールアドレス','','email','required')}<button class="btn primary" style="width:100%">再設定メールを送る</button></form><button class="btn" data-auth="login" style="margin-top:12px">戻る</button>`:`<form id="signupForm" data-role="${mode}">${input('display_name',mode==='student'?'氏名':'担当者名','','text','required')}${mode==='student'?input('university','大学名','','text','required'):input('hospital_name','病院名','','text','required')}${input('email','メールアドレス','','email','required autocomplete="email"')}${input('password','パスワード（10文字以上推奨）','','password','required minlength="10" autocomplete="new-password"')}<label class="small"><input type="checkbox" name="agree" required> <a href="./terms.html" target="_blank">利用規約</a>と<a href="./privacy.html" target="_blank">プライバシーポリシー</a>に同意します</label><button class="btn primary" style="width:100%;margin-top:14px">登録</button></form><button class="btn" data-auth="login" style="margin-top:12px">戻る</button>`}</div></div>`}
-async function recoveryScreen(){root.innerHTML=`<div class="auth-wrap"><div class="card"><h2>新しいパスワード</h2><form id="passwordForm">${input('password','新しいパスワード','','password','required minlength="10"')}<button class="btn primary">変更する</button></form></div></div>`}
+const state = {
+  supabase: null,
+  supabaseReady: false,
+  connectionError: "",
+  session: null,
+  profile: null,
+  route: parseRoute(),
+  filters: { keyword: "", prefecture: "", specialty: "", jobType: "" },
+  jobs: [],
+  activeDashTab: "overview",
+};
 
-async function boot(){if(!configured)return setupScreen();const {data:{session:s}}=await supabase.auth.getSession();session=s;if(!session)return authScreen();await loadIdentity();await render();}
-async function loadIdentity(){profile=await api.getMyProfile(session.user.id);if(profile.role==='hospital')hospitalCtx=await api.getHospitalMembership(session.user.id)}
-async function render(){try{if(profile.role==='student')return renderStudent();if(profile.role==='hospital')return renderHospital();return renderAdmin()}catch(e){console.error(e);root.innerHTML=shell(`<div class="notice dangerbox">読み込みエラー: ${esc(e.message)}</div><button class="btn" data-page="dashboard">再読み込み</button>`)} }
+const PREFECTURES = ["北海道","青森県","岩手県","宮城県","秋田県","山形県","福島県","茨城県","栃木県","群馬県","埼玉県","千葉県","東京都","神奈川県","新潟県","富山県","石川県","福井県","山梨県","長野県","岐阜県","静岡県","愛知県","三重県","滋賀県","京都府","大阪府","兵庫県","奈良県","和歌山県","鳥取県","島根県","岡山県","広島県","山口県","徳島県","香川県","愛媛県","高知県","福岡県","佐賀県","長崎県","熊本県","大分県","宮崎県","鹿児島県","沖縄県"];
+const SPECIALTIES = ["内科","外科","救急科","小児科","産婦人科","精神科","皮膚科","眼科","耳鼻咽喉科","整形外科","脳神経外科","泌尿器科","放射線科","麻酔科","病理診断科","総合診療科"];
 
-async function renderStudent(){const uid=session.user.id;if(page==='dashboard'){const [sp,sc,ap,fv]=await Promise.all([api.getStudent(uid),api.listStudentScouts(uid),api.listStudentApplications(uid),api.listMyFavorites(uid)]);root.innerHTML=shell(`${head('ホーム','スカウト・見学・応募状況を確認します。')}<div class="grid g4">${card('新着スカウト',`<div class="kpi"><strong>${sc.filter(x=>x.status==='unread').length}</strong><span>未読</span></div>`)}${card('見学・応募',`<div class="kpi"><strong>${ap.length}</strong><span>合計</span></div>`)}${card('お気に入り',`<div class="kpi"><strong>${fv.length}</strong><span>病院</span></div>`)}${card('本人確認',`<div class="kpi"><strong>${sp.verified?'済':'未'}</strong><span>${sp.verified?'確認済み':'書類を提出できます'}</span></div>`)}</div>`);return}
-if(page==='profile'){const sp=await api.getStudent(uid);root.innerHTML=shell(`${head('プロフィール','病院に公開する情報を設定します。')}<div class="card"><form id="studentProfile">${input('display_name','氏名',profile.display_name)}${input('university','大学',sp.university)}${input('school_year','学年',sp.school_year||'','number','min="1" max="6"')}${input('graduation_year','卒業予定年',sp.graduation_year||'','number')}${input('specialty_preferences','希望診療科（カンマ区切り）',(sp.specialty_preferences||[]).join(', '))}${input('preferred_areas','希望地域（カンマ区切り）',(sp.preferred_areas||[]).join(', '))}${textarea('bio','自己紹介',sp.bio)}<div class="field"><label><input type="checkbox" name="scout_enabled" ${sp.scout_enabled?'checked':''}> スカウトを受け取る</label></div><div class="field"><label><input type="checkbox" name="name_visible" ${sp.name_visible?'checked':''}> 氏名を検索結果で公開</label></div><div class="field"><label><input type="checkbox" name="university_visible" ${sp.university_visible?'checked':''}> 大学名を公開</label></div><button class="btn primary">保存</button></form></div>`);return}
-if(page==='hospitals'){const [hs,fvs]=await Promise.all([api.listHospitals(),api.listMyFavorites(uid)]);const fav=new Set(fvs.map(x=>x.hospital_id));root.innerHTML=shell(`${head('病院を探す','確認済みの病院だけ表示します。')}<div class="list">${hs.length?hs.map(h=>`<div class="card row"><div><div class="row-title">${esc(h.name)}</div><div class="row-sub">${esc([h.prefecture,h.city].filter(Boolean).join(' '))}</div><div class="badges">${badge(h.hospital_type||'病院','blue')}${h.salary_text?badge(h.salary_text):''}${h.oncall_text?badge(h.oncall_text):''}</div><div class="small muted" style="margin-top:8px">${esc(h.description||'')}</div></div><div class="actions"><button class="btn" data-action="favorite" data-id="${h.id}" data-on="${fav.has(h.id)?'1':'0'}">${fav.has(h.id)?'★ お気に入り':'☆ お気に入り'}</button><button class="btn primary" data-action="visit" data-id="${h.id}" data-name="${esc(h.name)}">見学申込</button></div></div>`).join(''):`<div class="empty card">現在公開中の病院はありません。</div>`}</div>`);return}
-if(page==='scouts'){const rows=await api.listStudentScouts(uid);root.innerHTML=shell(`${head('スカウト','病院から届いたスカウトです。')}<div class="list">${rows.length?rows.map(s=>`<div class="card"><div class="row"><div><div class="row-title">${esc(s.hospitals?.name||'病院')}</div><div class="row-sub">${fmtDate(s.created_at)}</div></div>${statusBadge(s.status)}</div><p>${esc(s.message)}</p><div class="actions">${s.status==='unread'?`<button class="btn" data-action="scout-response" data-id="${s.id}" data-status="read">既読</button>`:''}<button class="btn success" data-action="scout-response" data-id="${s.id}" data-status="interested">興味あり</button><button class="btn" data-action="scout-response" data-id="${s.id}" data-status="declined">辞退</button></div></div>`).join(''):`<div class="empty card">スカウトはまだありません。</div>`}</div>`);return}
-if(page==='applications'){const rows=await api.listStudentApplications(uid);root.innerHTML=shell(`${head('見学・応募','申込状況を確認します。')}<div class="list">${rows.length?rows.map(a=>`<div class="card row"><div><div class="row-title">${esc(a.hospitals?.name||'病院')}</div><div class="row-sub">${a.kind==='visit'?'病院見学':'応募'} ・ ${fmtDate(a.created_at)}${a.preferred_date?' ・ 希望 '+esc(a.preferred_date):''}</div></div><div class="actions">${statusBadge(a.status)}${['applied','accepted','interview'].includes(a.status)?`<button class="btn danger" data-action="withdraw" data-id="${a.id}">取下げ</button>`:''}</div></div>`).join(''):`<div class="empty card">申込はまだありません。</div>`}</div>`);return}
-if(page==='verify'){const docs=await api.listMyDocs(uid);root.innerHTML=shell(`${head('本人確認','学生証などの確認書類は非公開Storageに保存されます。')}<div class="grid g2">${card('書類を提出',`<form id="verifyForm"><div class="field"><label>書類種別</label><select name="kind"><option value="student_id">学生証</option><option value="university_email">大学メール確認資料</option><option value="other">その他</option></select></div><div class="field"><label>ファイル</label><input name="file" type="file" required></div><button class="btn primary">アップロード</button></form>`)}${card('提出履歴',docs.length?docs.map(d=>`<div class="row"><div><div class="row-title">${esc(d.kind)}</div><div class="row-sub">${fmtDate(d.created_at)}</div></div>${statusBadge(d.status)}</div>`).join(''):'<div class="empty">まだありません。</div>')}</div>`);return}}
+function escapeHtml(value = "") {
+  return String(value).replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
+}
+function fmtDate(value) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return escapeHtml(value);
+  return new Intl.DateTimeFormat("ja-JP", { year:"numeric", month:"2-digit", day:"2-digit" }).format(d);
+}
+function parseRoute() {
+  const raw = location.hash.replace(/^#\/?/, "");
+  const parts = raw.split("/").filter(Boolean);
+  return { parts, name: parts[0] || "home" };
+}
+function optionList(values, selected = "", placeholder = "指定なし") {
+  return `<option value="">${placeholder}</option>` + values.map(v => `<option value="${escapeHtml(v)}" ${v===selected?"selected":""}>${escapeHtml(v)}</option>`).join("");
+}
+function toast(message) {
+  toastEl.textContent = message;
+  toastEl.classList.add("show");
+  setTimeout(() => toastEl.classList.remove("show"), 2600);
+}
+function dbError(error, fallback="処理に失敗しました") {
+  console.error(error);
+  toast(error?.message || fallback);
+}
 
-async function renderHospital(){const m=hospitalCtx;if(!m)return root.innerHTML=shell(`<div class="notice dangerbox">病院所属情報が見つかりません。運営へお問い合わせください。</div>`);const h=m.hospitals, hid=h.id, uid=session.user.id;if(page==='dashboard'){const [sc,apps,jobs]=await Promise.all([api.listHospitalScouts(hid),api.listHospitalApps(hid),api.listJobs(hid)]);root.innerHTML=shell(`${head('採用ホーム',h.status==='verified'?'病院アカウントは確認済みです。':'運営による病院確認待ちです。')}${h.status!=='verified'?`<div class="notice warning">病院確認が完了するまで、学生検索・スカウト・募集公開は利用できません。病院情報と在籍確認書類を提出してください。</div>`:''}<div class="grid g3">${card('スカウト',`<div class="kpi"><strong>${sc.length}</strong><span>送信済み</span></div>`)}${card('見学・応募',`<div class="kpi"><strong>${apps.length}</strong><span>受信</span></div>`)}${card('募集',`<div class="kpi"><strong>${jobs.length}</strong><span>登録</span></div>`)}</div>`);return}
-if(page==='hospital'){root.innerHTML=shell(`${head('病院情報','審査対象となる基本情報です。')}<div class="card"><form id="hospitalProfile">${input('name','病院名',h.name)}${input('prefecture','都道府県',h.prefecture)}${input('city','市区町村',h.city)}${input('address','住所',h.address)}${input('hospital_type','病院種別',h.hospital_type)}${input('website','公式Webサイト',h.website,'url')}${textarea('description','説明',h.description)}${input('salary_text','給与',h.salary_text)}${input('oncall_text','当直',h.oncall_text)}${input('emergency_text','救急実績',h.emergency_text)}<button class="btn primary">保存</button></form></div>`);return}
-if(page==='verify'){const docs=await api.listMyDocs(uid);root.innerHTML=shell(`${head('在籍確認','病院公式メールや在籍確認資料を運営が確認します。')}<div class="grid g2">${card('書類を提出',`<form id="verifyForm"><input type="hidden" name="kind" value="hospital_employment"><div class="field"><label>在籍確認ファイル</label><input name="file" type="file" required></div><button class="btn primary">アップロード</button></form>`)}${card('提出履歴',docs.length?docs.map(d=>`<div class="row"><div><div class="row-title">${esc(d.kind)}</div><div class="row-sub">${fmtDate(d.created_at)}</div></div>${statusBadge(d.status)}</div>`).join(''):'<div class="empty">まだありません。</div>')}</div>`);return}
-if(h.status!=='verified'){root.innerHTML=shell(`${head('利用制限中','病院確認が完了してから利用できます。')}<div class="notice warning">運営審査待ちです。左メニューの「病院情報」「在籍確認」を完了してください。</div>`);return}
-if(page==='students'){root.innerHTML=shell(`${head('学生を探す','スカウト受信を許可している学生のみ検索できます。')}<div class="card"><form id="studentSearch"><div class="grid g4">${input('graduation_year','卒業年','','number')}${input('area','希望地域')}${input('specialty','希望診療科')}${input('university','大学')}</div><button class="btn primary">検索</button></form></div><div id="studentResults" class="list" style="margin-top:16px"><div class="empty card">条件を入力して検索してください。</div></div>`);return}
-if(page==='scouts'){const [rows,known]=await Promise.all([api.listHospitalScouts(hid),api.listKnownStudents(hid)]);const map=new Map(known.map(x=>[x.user_id,x]));root.innerHTML=shell(`${head('スカウト管理','送信履歴と学生の反応です。')}<div class="list">${rows.length?rows.map(s=>{const k=map.get(s.student_id);return `<div class="card row"><div><div class="row-title">${esc(k?.display_name||k?.public_code||s.student_id)}</div><div class="row-sub">${fmtDate(s.created_at)}</div></div>${statusBadge(s.status)}</div>`}).join(''):`<div class="empty card">まだ送信していません。</div>`}</div>`);return}
-if(page==='applications'){const [rows,known]=await Promise.all([api.listHospitalApps(hid),api.listKnownStudents(hid)]);const map=new Map(known.map(x=>[x.user_id,x]));root.innerHTML=shell(`${head('見学・応募管理','自院への申込だけ表示されます。')}<div class="list">${rows.length?rows.map(a=>{const k=map.get(a.student_id);return `<div class="card"><div class="row"><div><div class="row-title">${esc(k?.display_name||k?.public_code||a.student_id)}</div><div class="row-sub">${a.kind==='visit'?'見学':'応募'} ・ ${fmtDate(a.created_at)}</div></div>${statusBadge(a.status)}</div><div class="actions">${['accepted','rejected','visited','interview','offered','closed'].map(s=>`<button class="btn" data-action="app-status" data-id="${a.id}" data-status="${s}">${s}</button>`).join('')}</div></div>`}).join(''):`<div class="empty card">申込はまだありません。</div>`}</div>`);return}
-if(page==='jobs'){const rows=await api.listJobs(hid);root.innerHTML=shell(`${head('募集管理','初期研修・病院見学・説明会の募集です。','<button class="btn primary" data-action="new-job">＋ 新規募集</button>')}<div class="list">${rows.length?rows.map(j=>`<div class="card row"><div><div class="row-title">${esc(j.title)}</div><div class="row-sub">${esc(j.kind)} ・ ${j.graduation_year||'年度指定なし'}</div></div><div class="actions">${statusBadge(j.status)}<button class="btn" data-action="job-status" data-id="${j.id}" data-status="${j.status==='published'?'closed':'published'}">${j.status==='published'?'終了':'公開'}</button><button class="btn danger" data-action="delete-job" data-id="${j.id}">削除</button></div></div>`).join(''):`<div class="empty card">募集はまだありません。</div>`}</div>`);return}}
+async function init() {
+  render();
+  try {
+    const { createClient } = await import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm");
+    if (!CONFIG.supabaseUrl || CONFIG.supabaseUrl.includes("YOUR_PROJECT") || !CONFIG.supabasePublishableKey || CONFIG.supabasePublishableKey.includes("REPLACE_ME")) {
+      throw new Error("config.js に Supabase の接続情報が設定されていません。");
+    }
+    state.supabase = createClient(CONFIG.supabaseUrl, CONFIG.supabasePublishableKey, {
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+    });
+    const { data: { session }, error } = await state.supabase.auth.getSession();
+    if (error) throw error;
+    state.session = session;
+    state.supabaseReady = true;
+    await loadOwnProfile();
+    state.supabase.auth.onAuthStateChange(async (_event, sessionNow) => {
+      state.session = sessionNow;
+      await loadOwnProfile();
+      render();
+    });
+  } catch (error) {
+    state.connectionError = error?.message || "Supabaseへの接続に失敗しました。";
+    console.error(error);
+  }
+  await loadPublicJobs();
+  render();
+}
 
-async function renderAdmin(){if(page==='dashboard'){const [ps,hs,ds,rs]=await Promise.all([api.admin.profiles(),api.admin.hospitals(),api.admin.docs(),api.admin.reports()]);root.innerHTML=shell(`${head('運営ダッシュボード','要審査案件と登録状況です。')}<div class="grid g4">${card('ユーザー',`<div class="kpi"><strong>${ps.length}</strong></div>`)}${card('病院',`<div class="kpi"><strong>${hs.length}</strong></div>`)}${card('本人確認待ち',`<div class="kpi"><strong>${ds.filter(x=>x.status==='pending').length}</strong></div>`)}${card('未解決通報',`<div class="kpi"><strong>${rs.filter(x=>['open','investigating'].includes(x.status)).length}</strong></div>`)}</div>`);return}
-if(page==='hospitals'){const rows=await api.admin.hospitals();root.innerHTML=shell(`${head('病院審査','登録病院の承認・却下を行います。')}<div class="list">${rows.map(h=>`<div class="card row"><div><div class="row-title">${esc(h.name)}</div><div class="row-sub">${esc([h.prefecture,h.city].filter(Boolean).join(' '))} ・ ${esc(h.website)}</div></div><div class="actions">${statusBadge(h.status)}<button class="btn success" data-action="verify-hospital" data-id="${h.id}" data-ok="1">承認</button><button class="btn danger" data-action="verify-hospital" data-id="${h.id}" data-ok="0">却下</button></div></div>`).join('')}</div>`);return}
-if(page==='users'){const rows=await api.admin.profiles();root.innerHTML=shell(`${head('ユーザー管理','アカウント状態を管理します。')}<div class="table-wrap card"><table><thead><tr><th>表示名</th><th>role</th><th>status</th><th>登録</th><th>操作</th></tr></thead><tbody>${rows.map(p=>`<tr><td>${esc(p.display_name)}</td><td>${esc(p.role)}</td><td>${statusBadge(p.status)}</td><td>${fmtDate(p.created_at)}</td><td>${p.role==='admin'?'—':`<button class="btn" data-action="profile-status" data-id="${p.id}" data-status="${p.status==='suspended'?'active':'suspended'}">${p.status==='suspended'?'再有効化':'停止'}</button>`}</td></tr>`).join('')}</tbody></table></div>`);return}
-if(page==='verify'){const rows=await api.admin.docs();root.innerHTML=shell(`${head('本人確認','提出された非公開書類を審査します。')}<div class="list">${rows.map(d=>`<div class="card row"><div><div class="row-title">${esc(d.kind)}</div><div class="row-sub">${fmtDate(d.created_at)} ・ ${esc(d.user_id)}</div></div><div class="actions">${statusBadge(d.status)}<button class="btn" data-action="open-doc" data-path="${esc(d.storage_path)}">書類を見る</button><button class="btn success" data-action="review-doc" data-id="${d.id}" data-ok="1">承認</button><button class="btn danger" data-action="review-doc" data-id="${d.id}" data-ok="0">却下</button></div></div>`).join('')}</div>`);return}
-if(page==='reports'){const rows=await api.admin.reports();root.innerHTML=shell(`${head('通報・問い合わせ','運営対応状況を管理します。')}<div class="list">${rows.map(r=>`<div class="card"><div class="row"><div><div class="row-title">${esc(r.category)}</div><div class="row-sub">${fmtDate(r.created_at)}</div></div>${statusBadge(r.status)}</div><p>${esc(r.body)}</p><div class="actions">${['investigating','resolved','dismissed'].map(s=>`<button class="btn" data-action="report-status" data-id="${r.id}" data-status="${s}">${s}</button>`).join('')}</div></div>`).join('')}</div>`);return}
-if(page==='audit'){const rows=await api.admin.audits();root.innerHTML=shell(`${head('操作ログ','直近200件を表示します。')}<div class="table-wrap card"><table><thead><tr><th>日時</th><th>actor</th><th>操作</th><th>対象</th><th>ID</th></tr></thead><tbody>${rows.map(a=>`<tr><td>${fmtDate(a.created_at)}</td><td>${esc(a.actor_user_id||'system')}</td><td>${esc(a.action)}</td><td>${esc(a.entity_type)}</td><td>${esc(a.entity_id)}</td></tr>`).join('')}</tbody></table></div>`);return}}
+async function loadOwnProfile() {
+  state.profile = null;
+  if (!state.supabase || !state.session?.user?.id) return;
+  const { data, error } = await state.supabase.from("profiles").select("*").eq("id", state.session.user.id).maybeSingle();
+  if (error) console.warn("profile load", error);
+  state.profile = data || null;
+}
 
-async function withBusy(fn){try{await fn()}catch(e){console.error(e);toast(e.message||'エラーが発生しました')}}
-root.addEventListener('click',e=>withBusy(async()=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.auth)return authScreen(b.dataset.auth);if(b.dataset.page){page=b.dataset.page;return render()}if(b.dataset.action==='logout'){await api.auth.signOut();session=profile=hospitalCtx=null;return authScreen()}if(b.dataset.action==='favorite'){const on=b.dataset.on==='1';await(on?api.removeFavorite(session.user.id,b.dataset.id):api.addFavorite(session.user.id,b.dataset.id));toast(on?'お気に入りから削除しました':'お気に入りに追加しました');return render()}if(b.dataset.action==='visit'){const date=window.prompt(`${b.dataset.name} の見学希望日を YYYY-MM-DD で入力してください（空欄可）`,'');const msg=window.prompt('病院へのメッセージ','病院見学を希望します。')||'';await api.createApplication({hospital_id:b.dataset.id,student_id:session.user.id,kind:'visit',message:msg,preferred_date:date||null});toast('見学を申し込みました');page='applications';return render()}if(b.dataset.action==='scout-response'){await api.respondScout(b.dataset.id,b.dataset.status);toast('更新しました');return render()}if(b.dataset.action==='withdraw'){if(confirm('この申込を取り下げますか？')){await api.withdrawApplication(b.dataset.id);toast('取り下げました');return render()}}if(b.dataset.action==='app-status'){await api.updateAppStatus(b.dataset.id,b.dataset.status);toast('状態を更新しました');return render()}if(b.dataset.action==='new-job'){const title=window.prompt('募集タイトル');if(!title)return;const kind=window.prompt('種別: residency / visit / briefing','residency')||'residency';const year=window.prompt('対象卒業年（空欄可）','');const desc=window.prompt('説明','')||'';await api.createJob({hospital_id:hospitalCtx.hospitals.id,title,kind,graduation_year:year?Number(year):null,description:desc,status:'draft',created_by:session.user.id});toast('募集を作成しました');return render()}if(b.dataset.action==='job-status'){await api.updateJob(b.dataset.id,{status:b.dataset.status,published_at:b.dataset.status==='published'?new Date().toISOString():null});toast('更新しました');return render()}if(b.dataset.action==='delete-job'){if(confirm('削除しますか？')){await api.deleteJob(b.dataset.id);return render()}}if(b.dataset.action==='verify-hospital'){await api.admin.verifyHospital(b.dataset.id,b.dataset.ok==='1');toast('審査結果を保存しました');return render()}if(b.dataset.action==='profile-status'){await api.admin.setProfileStatus(b.dataset.id,b.dataset.status);toast('更新しました');return render()}if(b.dataset.action==='review-doc'){await api.admin.reviewDoc(b.dataset.id,b.dataset.ok==='1','');toast('審査しました');return render()}if(b.dataset.action==='open-doc'){const url=await api.admin.signedDoc(b.dataset.path);window.open(url,'_blank','noopener');return}if(b.dataset.action==='report-status'){await api.admin.reportStatus(b.dataset.id,b.dataset.status);toast('更新しました');return render()}}));
-root.addEventListener('submit',e=>{e.preventDefault();withBusy(async()=>{const f=e.target;const fd=new FormData(f);if(f.id==='authForm'){await api.auth.signIn(fd.get('email'),fd.get('password'));const s=await api.auth.session();session=s;await loadIdentity();page='dashboard';return render()}if(f.id==='resetForm'){await api.auth.reset(fd.get('email'),location.origin+location.pathname);toast('再設定メールを送信しました');return}if(f.id==='signupForm'){const role=f.dataset.role;if(role==='student')await api.auth.signUpStudent(fd.get('email'),fd.get('password'),fd.get('display_name'),fd.get('university'));else await api.auth.signUpHospital(fd.get('email'),fd.get('password'),fd.get('display_name'),fd.get('hospital_name'));toast('確認メールを送信しました。メール内のリンクを開いてください。');return authScreen('login')}if(f.id==='passwordForm'){await api.auth.updatePassword(fd.get('password'));toast('パスワードを変更しました');return boot()}if(f.id==='studentProfile'){await api.saveDisplayName(session.user.id,fd.get('display_name'));await api.saveStudent(session.user.id,{university:fd.get('university'),school_year:fd.get('school_year')?Number(fd.get('school_year')):null,graduation_year:fd.get('graduation_year')?Number(fd.get('graduation_year')):null,specialty_preferences:csvArray(fd.get('specialty_preferences')),preferred_areas:csvArray(fd.get('preferred_areas')),bio:fd.get('bio'),scout_enabled:fd.has('scout_enabled'),name_visible:fd.has('name_visible'),university_visible:fd.has('university_visible')});profile.display_name=fd.get('display_name');toast('保存しました');return render()}if(f.id==='hospitalProfile'){await api.saveHospital(hospitalCtx.hospitals.id,{name:fd.get('name'),prefecture:fd.get('prefecture'),city:fd.get('city'),address:fd.get('address'),hospital_type:fd.get('hospital_type'),website:fd.get('website'),description:fd.get('description'),salary_text:fd.get('salary_text'),oncall_text:fd.get('oncall_text'),emergency_text:fd.get('emergency_text')});hospitalCtx=await api.getHospitalMembership(session.user.id);toast('保存しました');return render()}if(f.id==='verifyForm'){const file=fd.get('file');if(!file||!file.size)throw new Error('ファイルを選択してください');await api.uploadVerification(session.user.id,fd.get('kind'),file);toast('提出しました');return render()}if(f.id==='studentSearch'){const filters={graduation_year:fd.get('graduation_year'),area:fd.get('area'),specialty:fd.get('specialty'),university:fd.get('university')};const rows=await api.searchStudents(hospitalCtx.hospitals.id,filters);$('#studentResults').innerHTML=rows.length?rows.map(s=>`<div class="card row"><div><div class="row-title">${esc(s.display_name)}</div><div class="row-sub">${esc(s.university)} ・ ${s.graduation_year||'卒業年未設定'}</div><div class="badges">${(s.specialty_preferences||[]).map(x=>badge(x,'blue')).join('')}${(s.preferred_areas||[]).map(x=>badge(x,'green')).join('')}</div></div><button class="btn primary" data-action="send-scout" data-id="${s.user_id}" data-name="${esc(s.display_name)}">スカウト</button></div>`).join(''):'<div class="empty card">該当する学生はいません。</div>';return}})});
-root.addEventListener('click',e=>{const b=e.target.closest('[data-action="send-scout"]');if(!b)return;withBusy(async()=>{const msg=window.prompt(`${b.dataset.name} へのスカウト文`,'プロフィールを拝見し、ぜひ一度病院見学にお越しいただきたくご連絡しました。');if(!msg)return;await api.sendScout(hospitalCtx.hospitals.id,session.user.id,b.dataset.id,msg);toast('スカウトを送信しました')})});
+async function loadPublicJobs() {
+  if (!state.supabaseReady) { state.jobs = []; return; }
+  const { data, error } = await state.supabase
+    .from("jobs")
+    .select("id,title,job_type,specialties,prefecture,city,application_deadline,summary,status,created_at,hospitals(id,name,verification_status)")
+    .eq("status", "published")
+    .order("created_at", { ascending:false })
+    .limit(100);
+  if (error) { console.warn(error); state.jobs = []; return; }
+  state.jobs = data || [];
+}
 
-if(configured){supabase.auth.onAuthStateChange(async(event,s)=>{if(event==='PASSWORD_RECOVERY')return recoveryScreen();if(event==='SIGNED_OUT'&&!s){session=profile=hospitalCtx=null;authScreen()}})}
-boot();
+function header(active = "") {
+  const logged = !!state.session;
+  const name = state.profile?.display_name || state.session?.user?.email || "ログイン中";
+  return `
+  <header class="site-header">
+    <div class="header-top"><div class="header-inner">
+      <a class="site-brand" href="#/"><span class="brand-mark">M</span><span>${escapeHtml(CONFIG.appName || "MedMatch")}</span></a>
+      <span class="site-tagline">医学生と病院をつなぐキャリア情報プラットフォーム</span>
+      <span class="header-spacer"></span>
+      <div class="header-actions">
+        ${logged ? `<span class="account-chip">${escapeHtml(name)}</span><a class="header-link primary" href="#/dashboard">マイページ</a>` : `<a class="header-link" href="#/login">ログイン</a><a class="header-link primary" href="#/register">新規登録</a>`}
+      </div>
+    </div></div>
+    <nav class="global-nav"><div class="header-inner">
+      <a class="${active==='home'?'active':''}" href="#/">トップ</a>
+      <a class="${active==='jobs'?'active':''}" href="#/jobs">募集を探す</a>
+      <a href="#/about">MedMatchについて</a>
+      ${state.profile?.role === "admin" ? `<a class="${active==='admin'?'active':''}" href="#/admin">運営管理</a>` : ""}
+    </div></nav>
+  </header>`;
+}
+function footer() {
+  return `<footer class="footer"><div class="footer-inner"><span>© ${new Date().getFullYear()} MedMatch</span><span class="footer-links"><a href="./privacy.html">プライバシーポリシー</a><a href="./terms.html">利用規約</a></span></div></footer>`;
+}
+function connectionNotice() {
+  if (state.connectionError) return `<div class="notice error"><strong>Supabase接続エラー:</strong> ${escapeHtml(state.connectionError)}<br>画面自体は表示しています。設定・ネットワークを確認してください。</div>`;
+  return "";
+}
+
+function publicSearchPanel() {
+  const f = state.filters;
+  return `<form id="search-form" class="search-panel">
+    <div class="search-title">募集情報を検索</div>
+    <div class="search-grid">
+      <div class="field"><label>キーワード</label><input name="keyword" value="${escapeHtml(f.keyword)}" placeholder="病院名、募集名、地域など"></div>
+      <div class="field"><label>都道府県</label><select name="prefecture">${optionList(PREFECTURES,f.prefecture)}</select></div>
+      <div class="field"><label>診療科</label><select name="specialty">${optionList(SPECIALTIES,f.specialty)}</select></div>
+      <div class="field"><label>募集区分</label><select name="jobType">${optionList(["病院見学","初期研修","イベント・説明会","その他"],f.jobType)}</select></div>
+    </div>
+    <div class="search-actions"><button type="button" id="search-reset" class="btn">条件をクリア</button><button class="btn primary" type="submit">この条件で検索</button></div>
+  </form>`;
+}
+function filteredJobs() {
+  const f = state.filters;
+  const kw = f.keyword.trim().toLowerCase();
+  return state.jobs.filter(j => {
+    const blob = [j.title,j.summary,j.prefecture,j.city,j.hospitals?.name,(j.specialties||[]).join(" ")].join(" ").toLowerCase();
+    return (!kw || blob.includes(kw)) && (!f.prefecture || j.prefecture===f.prefecture) && (!f.specialty || (j.specialties||[]).includes(f.specialty)) && (!f.jobType || j.job_type===f.jobType);
+  });
+}
+function jobCard(j) {
+  const specs = (j.specialties || []).slice(0,4).map(x=>`<span class="tag blue">${escapeHtml(x)}</span>`).join("");
+  return `<article class="job-card">
+    <div class="job-card-head"><div>
+      <a class="job-title" href="#/jobs/${encodeURIComponent(j.id)}">${escapeHtml(j.title)}</a>
+      <div class="hospital-name">${escapeHtml(j.hospitals?.name || "病院名未設定")}</div>
+    </div><div class="deadline">応募締切：${fmtDate(j.application_deadline)}</div></div>
+    <div class="job-meta"><span class="tag green">${escapeHtml(j.job_type || "募集")}</span><span class="tag">${escapeHtml([j.prefecture,j.city].filter(Boolean).join(" ") || "地域未設定")}</span>${specs}</div>
+    <p class="job-summary">${escapeHtml(j.summary || "募集概要は詳細ページをご確認ください。")}</p>
+  </article>`;
+}
+function homePage() {
+  const jobs = filteredJobs().slice(0,8);
+  return `${header("home")}
+    <section class="hero"><div class="hero-inner"><h1>医学生のための病院・研修募集情報</h1><p>病院見学、初期研修、説明会を検索し、応募・スカウトまで一つのサービスで管理できます。</p>${publicSearchPanel()}</div></section>
+    <main class="page">${connectionNotice()}
+      <div class="section-head"><div><h2>新着募集</h2><p>公開中の募集を新しい順に表示しています。</p></div><a href="#/jobs">募集一覧を見る →</a></div>
+      ${jobs.length ? `<div class="job-list">${jobs.map(jobCard).join("")}</div>` : `<div class="empty">現在表示できる募集はありません。病院が募集を公開するとここに表示されます。</div>`}
+    </main>${footer()}`;
+}
+function jobsPage() {
+  const jobs = filteredJobs();
+  return `${header("jobs")}<main class="page"><div class="breadcrumbs"><a href="#/">トップ</a> &gt; 募集を探す</div>${connectionNotice()}${publicSearchPanel()}
+    <div class="section-head"><div><h2>募集情報一覧</h2><p>条件を指定して病院の募集を探せます。</p></div></div>
+    <div class="result-layout"><aside class="side-filter"><h3>検索条件</h3><div class="body"><div class="field"><label>都道府県</label><select data-filter="prefecture">${optionList(PREFECTURES,state.filters.prefecture)}</select></div><div class="field"><label>診療科</label><select data-filter="specialty">${optionList(SPECIALTIES,state.filters.specialty)}</select></div><div class="field"><label>募集区分</label><select data-filter="jobType">${optionList(["病院見学","初期研修","イベント・説明会","その他"],state.filters.jobType)}</select></div></div></aside>
+    <section><div class="result-summary">${jobs.length} 件</div>${jobs.length?`<div class="job-list">${jobs.map(jobCard).join("")}</div>`:`<div class="empty">条件に一致する募集はありません。</div>`}</section></div>
+  </main>${footer()}`;
+}
+
+async function jobDetailPage(id) {
+  if (!state.supabaseReady) return shellMessage("募集詳細", "Supabaseに接続できていないため詳細を取得できません。");
+  const { data:j, error } = await state.supabase.from("jobs").select("*,hospitals(id,name,prefecture,city,website,description,verification_status)").eq("id",id).maybeSingle();
+  if (error || !j) return shellMessage("募集詳細", "募集が見つからないか、閲覧権限がありません。");
+  const specs=(j.specialties||[]).map(x=>`<span class="tag blue">${escapeHtml(x)}</span>`).join("");
+  const canApply=state.profile?.role==="student";
+  return `${header("jobs")}<main class="page"><div class="breadcrumbs"><a href="#/">トップ</a> &gt; <a href="#/jobs">募集一覧</a> &gt; ${escapeHtml(j.title)}</div>
+  <div class="detail-grid"><article class="detail-main"><h1 class="detail-title">${escapeHtml(j.title)}</h1><div class="hospital-name"><a href="#/hospitals/${encodeURIComponent(j.hospital_id)}">${escapeHtml(j.hospitals?.name||"")}</a></div><div class="job-meta"><span class="tag green">${escapeHtml(j.job_type||"募集")}</span><span class="tag">${escapeHtml([j.prefecture,j.city].filter(Boolean).join(" "))}</span>${specs}</div>
+  <section class="detail-section"><h2>募集概要</h2><p>${escapeHtml(j.summary||"記載なし")}</p></section>
+  <section class="detail-section"><h2>募集内容</h2><p>${escapeHtml(j.details||"記載なし")}</p></section>
+  <section class="detail-section"><h2>応募条件</h2><p>${escapeHtml(j.requirements||"記載なし")}</p></section>
+  </article><aside class="detail-side-card"><h3>募集情報</h3><table class="kv"><tr><th>募集区分</th><td>${escapeHtml(j.job_type||"—")}</td></tr><tr><th>勤務地</th><td>${escapeHtml([j.prefecture,j.city].filter(Boolean).join(" ")||"—")}</td></tr><tr><th>開始時期</th><td>${fmtDate(j.start_date)}</td></tr><tr><th>応募締切</th><td>${fmtDate(j.application_deadline)}</td></tr></table>
+  ${canApply?`<button class="btn primary" id="apply-job" data-id="${escapeHtml(j.id)}">この募集に応募する</button>`:state.session?`<div class="notice warn" style="margin-top:10px">応募は医学生アカウントから利用できます。</div>`:`<a class="btn primary" style="display:block;text-align:center" href="#/login">ログインして応募</a>`}
+  <a class="btn" style="display:block;text-align:center" href="#/hospitals/${encodeURIComponent(j.hospital_id)}">病院詳細を見る</a></aside></div></main>${footer()}`;
+}
+async function hospitalDetailPage(id) {
+  if (!state.supabaseReady) return shellMessage("病院詳細", "Supabaseに接続できていないため詳細を取得できません。");
+  const [{data:h,error},{data:jobs}] = await Promise.all([
+    state.supabase.from("hospitals").select("*").eq("id",id).maybeSingle(),
+    state.supabase.from("jobs").select("id,title,job_type,specialties,prefecture,city,application_deadline,summary,status,created_at,hospitals(id,name,verification_status)").eq("hospital_id",id).eq("status","published").order("created_at",{ascending:false})
+  ]);
+  if (error || !h) return shellMessage("病院詳細", "病院が見つからないか、閲覧権限がありません。");
+  return `${header("")}<main class="page"><div class="breadcrumbs"><a href="#/">トップ</a> &gt; 病院詳細</div><div class="detail-grid"><article class="detail-main"><h1 class="detail-title">${escapeHtml(h.name)}</h1><div class="job-meta"><span class="tag green">確認済み病院</span><span class="tag">${escapeHtml([h.prefecture,h.city].filter(Boolean).join(" "))}</span></div><section class="detail-section"><h2>病院について</h2><p>${escapeHtml(h.description||"病院紹介は未登録です。")}</p></section><section class="detail-section"><h2>この病院の募集</h2>${jobs?.length?`<div class="job-list">${jobs.map(jobCard).join("")}</div>`:`<div class="empty">現在公開中の募集はありません。</div>`}</section></article><aside class="detail-side-card"><h3>病院情報</h3><table class="kv"><tr><th>所在地</th><td>${escapeHtml([h.prefecture,h.city].filter(Boolean).join(" ")||"—")}</td></tr><tr><th>Web</th><td>${h.website?`<a target="_blank" rel="noopener noreferrer" href="${escapeHtml(h.website)}">公式サイト</a>`:"—"}</td></tr></table></aside></div></main>${footer()}`;
+}
+function loginPage() {
+  if (state.session) return dashboardLoadingRedirect();
+  return `${header("")}<main class="page"><div class="auth-shell"><div class="panel"><div class="panel-head">ログイン</div><div class="panel-body">${connectionNotice()}<form id="login-form"><div class="field"><label>メールアドレス</label><input type="email" name="email" required autocomplete="email"></div><div class="field"><label>パスワード</label><input type="password" name="password" required autocomplete="current-password"></div><button class="btn primary" type="submit">ログイン</button></form><p class="form-help">アカウントをお持ちでない場合は <a href="#/register">新規登録</a> してください。</p></div></div></div></main>${footer()}`;
+}
+function registerPage() {
+  if (state.session) return dashboardLoadingRedirect();
+  return `${header("")}<main class="page"><div class="auth-shell"><div class="panel"><div class="panel-head">新規登録</div><div class="panel-body">${connectionNotice()}<form id="register-form"><div class="field"><label>利用区分</label><select name="role" required><option value="student">医学生</option><option value="hospital">病院担当者</option></select></div><div class="field"><label>表示名 / 担当者名</label><input name="display_name" required></div><div class="field"><label>メールアドレス</label><input type="email" name="email" required autocomplete="email"></div><div class="field"><label>パスワード</label><input type="password" name="password" required minlength="8" autocomplete="new-password"></div><button class="btn primary" type="submit">登録する</button></form><p class="form-help">病院アカウントは登録後、病院情報を入力し、運営の確認を受ける必要があります。</p></div></div></div></main>${footer()}`;
+}
+function dashboardLoadingRedirect(){setTimeout(()=>{location.hash="#/dashboard"},0);return `${header("")}<main class="page"><div class="empty">マイページへ移動します。</div></main>${footer()}`}
+function shellMessage(title,msg){return `${header("")}<main class="page"><div class="breadcrumbs"><a href="#/">トップ</a> &gt; ${escapeHtml(title)}</div><div class="empty">${escapeHtml(msg)}</div></main>${footer()}`}
+
+async function dashboardPage() {
+  if (!state.session) { setTimeout(()=>location.hash="#/login",0); return shellMessage("マイページ","ログイン画面へ移動します。"); }
+  if (!state.profile) return shellMessage("マイページ","プロフィール情報を取得できません。SQL初期化が完了しているか確認してください。");
+  if (state.profile.role === "student") return studentDashboard();
+  if (state.profile.role === "hospital") return hospitalDashboard();
+  if (state.profile.role === "admin") return adminDashboard();
+  return shellMessage("マイページ","アカウント種別が不明です。");
+}
+function dashFrame(nav,content) {
+  return `${header(state.profile?.role==='admin'?"admin":"")}<main class="page">${connectionNotice()}<div class="toolbar"><h2>マイページ</h2><button class="btn small" id="logout-btn">ログアウト</button></div><div class="dashboard"><nav class="dash-nav">${nav}</nav><section class="dash-content">${content}</section></div></main>${footer()}`;
+}
+function dashButton(tab,label){return `<button data-dash-tab="${tab}" class="${state.activeDashTab===tab?"active":""}">${label}</button>`}
+
+async function studentDashboard() {
+  const uid=state.session.user.id;
+  const [{data:sp},{data:apps},{data:scouts}] = await Promise.all([
+    state.supabase.from("student_profiles").select("*").eq("user_id",uid).maybeSingle(),
+    state.supabase.from("applications").select("*,jobs(id,title,hospitals(name))").eq("student_id",uid).order("created_at",{ascending:false}),
+    state.supabase.from("scouts").select("*,hospitals(name),jobs(id,title)").eq("student_id",uid).order("created_at",{ascending:false})
+  ]);
+  const nav=dashButton("overview","概要")+dashButton("profile","プロフィール")+dashButton("applications","応募管理")+dashButton("scouts","スカウト");
+  let content="";
+  if(state.activeDashTab==="overview") content=`<div class="stats"><div class="stat"><strong>${apps?.length||0}</strong><span>応募</span></div><div class="stat"><strong>${scouts?.length||0}</strong><span>スカウト</span></div><div class="stat"><strong>${sp?.is_searchable?"公開":"非公開"}</strong><span>スカウト検索</span></div></div><div class="panel"><div class="panel-head">ご利用状況</div><div class="panel-body">募集一覧から見学・研修に応募できます。プロフィールを公開すると、確認済み病院からスカウトを受け取れます。</div></div>`;
+  if(state.activeDashTab==="profile") content=studentProfileForm(sp);
+  if(state.activeDashTab==="applications") content=applicationsTable(apps||[]);
+  if(state.activeDashTab==="scouts") content=scoutsTable(scouts||[]);
+  return dashFrame(nav,content);
+}
+function studentProfileForm(sp={}){return `<div class="panel"><div class="panel-head">医学生プロフィール</div><div class="panel-body"><form id="student-profile-form" class="form-grid"><div class="field"><label>大学</label><input name="university" value="${escapeHtml(sp?.university||"")}" required></div><div class="field"><label>卒業予定年</label><input name="graduation_year" type="number" min="2026" max="2040" value="${escapeHtml(sp?.graduation_year||"")}"></div><div class="field"><label>希望診療科（カンマ区切り）</label><input name="desired_specialties" value="${escapeHtml((sp?.desired_specialties||[]).join(", "))}"></div><div class="field"><label>希望地域（カンマ区切り）</label><input name="desired_prefectures" value="${escapeHtml((sp?.desired_prefectures||[]).join(", "))}"></div><div class="field span2"><label>自己紹介</label><textarea name="bio">${escapeHtml(sp?.bio||"")}</textarea></div><div class="field span2"><label><input style="width:auto" type="checkbox" name="is_searchable" ${sp?.is_searchable?"checked":""}> 確認済み病院からのスカウト検索対象にする</label></div><div class="span2"><button class="btn primary" type="submit">保存する</button></div></form></div></div>`}
+function applicationsTable(rows){return `<div class="toolbar"><h2>応募管理</h2><a href="#/jobs" class="btn small">募集を探す</a></div>${rows.length?`<div class="table-wrap"><table><thead><tr><th>募集</th><th>病院</th><th>応募日</th><th>状態</th></tr></thead><tbody>${rows.map(r=>`<tr><td><a href="#/jobs/${r.job_id}">${escapeHtml(r.jobs?.title||"")}</a></td><td>${escapeHtml(r.jobs?.hospitals?.name||"")}</td><td>${fmtDate(r.created_at)}</td><td><span class="status ${escapeHtml(r.status)}">${escapeHtml(r.status)}</span></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">まだ応募はありません。</div>`}
+function scoutsTable(rows){return rows.length?`<div class="table-wrap"><table><thead><tr><th>病院</th><th>募集</th><th>メッセージ</th><th>状態</th><th></th></tr></thead><tbody>${rows.map(r=>`<tr><td>${escapeHtml(r.hospitals?.name||"")}</td><td>${r.jobs?.id?`<a href="#/jobs/${r.jobs.id}">${escapeHtml(r.jobs?.title||"")}</a>`:"—"}</td><td>${escapeHtml(r.message||"")}</td><td><span class="status ${escapeHtml(r.status)}">${escapeHtml(r.status)}</span></td><td>${r.status==='sent'?`<div class="actions"><button class="btn small success" data-scout-action="interested" data-id="${r.id}">興味あり</button><button class="btn small" data-scout-action="declined" data-id="${r.id}">辞退</button></div>`:""}</td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">スカウトはまだありません。</div>`}
+
+async function hospitalDashboard() {
+  const uid=state.session.user.id;
+  const {data:members}=await state.supabase.from("hospital_members").select("hospital_id,member_role,hospitals(*)").eq("user_id",uid).limit(1);
+  const hospital=members?.[0]?.hospitals || null;
+  if(!hospital) {
+    const nav=dashButton("overview","病院登録");
+    const content=`<div class="notice warn">病院情報がまだ登録されていません。最初に病院情報を登録してください。登録後、運営の確認が完了すると学生検索・スカウトが利用できます。</div>${hospitalCreateForm()}`;
+    return dashFrame(nav,content);
+  }
+  const hid=hospital.id;
+  const [{data:jobs},{data:apps},{data:scouts}] = await Promise.all([
+    state.supabase.from("jobs").select("*").eq("hospital_id",hid).order("created_at",{ascending:false}),
+    state.supabase.from("applications").select("*,jobs!inner(id,title,hospital_id),student_profiles(university,graduation_year),profiles!applications_student_id_fkey(display_name)").eq("jobs.hospital_id",hid).order("created_at",{ascending:false}),
+    state.supabase.from("scouts").select("*,student_profiles(university,graduation_year),profiles!scouts_student_id_fkey(display_name),jobs(id,title)").eq("hospital_id",hid).order("created_at",{ascending:false})
+  ]);
+  const nav=dashButton("overview","概要")+dashButton("jobs","募集管理")+dashButton("applications","応募者")+dashButton("students","学生検索")+dashButton("scouts","スカウト");
+  let content="";
+  if(state.activeDashTab==="overview") content=`<div class="notice ${hospital.verification_status==='verified'?'success':'warn'}">病院確認状態：<strong>${escapeHtml(hospital.verification_status)}</strong>${hospital.verification_status!=='verified'?" — 運営承認後に学生検索とスカウト機能が利用できます。":""}</div><div class="stats"><div class="stat"><strong>${jobs?.length||0}</strong><span>募集</span></div><div class="stat"><strong>${apps?.length||0}</strong><span>応募</span></div><div class="stat"><strong>${scouts?.length||0}</strong><span>送信スカウト</span></div></div><div class="panel"><div class="panel-head">${escapeHtml(hospital.name)}</div><div class="panel-body">${escapeHtml(hospital.description||"病院紹介は未登録です。")}</div></div>`;
+  if(state.activeDashTab==="jobs") content=jobsManager(jobs||[]);
+  if(state.activeDashTab==="applications") content=hospitalApplications(apps||[]);
+  if(state.activeDashTab==="students") content=await studentSearchPanel(hospital);
+  if(state.activeDashTab==="scouts") content=hospitalScouts(scouts||[]);
+  return dashFrame(nav,content);
+}
+function hospitalCreateForm(){return `<div class="panel"><div class="panel-head">病院情報登録</div><div class="panel-body"><form id="hospital-create-form" class="form-grid"><div class="field span2"><label>病院名</label><input name="name" required></div><div class="field"><label>都道府県</label><select name="prefecture" required>${optionList(PREFECTURES,"","選択してください")}</select></div><div class="field"><label>市区町村</label><input name="city" required></div><div class="field span2"><label>公式Webサイト</label><input name="website" type="url" placeholder="https://..."></div><div class="field span2"><label>病院紹介</label><textarea name="description"></textarea></div><div class="span2"><button class="btn primary" type="submit">病院情報を登録する</button></div></form></div></div>`}
+function jobsManager(rows){return `<div class="toolbar"><h2>募集管理</h2><button class="btn primary small" id="new-job-toggle">新しい募集を作成</button></div><div id="new-job-area" hidden>${jobCreateForm()}</div>${rows.length?`<div class="table-wrap"><table><thead><tr><th>募集名</th><th>区分</th><th>締切</th><th>状態</th><th></th></tr></thead><tbody>${rows.map(r=>`<tr><td><a href="#/jobs/${r.id}">${escapeHtml(r.title)}</a></td><td>${escapeHtml(r.job_type)}</td><td>${fmtDate(r.application_deadline)}</td><td><span class="status ${escapeHtml(r.status)}">${escapeHtml(r.status)}</span></td><td><div class="actions">${r.status==='draft'?`<button class="btn small success" data-job-status="published" data-id="${r.id}">公開</button>`:`<button class="btn small" data-job-status="closed" data-id="${r.id}">終了</button>`}</div></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">まだ募集がありません。</div>`}`}
+function jobCreateForm(){return `<div class="panel" style="margin-bottom:12px"><div class="panel-head">募集作成</div><div class="panel-body"><form id="job-create-form" class="form-grid"><div class="field span2"><label>募集名</label><input name="title" required></div><div class="field"><label>募集区分</label><select name="job_type" required>${optionList(["病院見学","初期研修","イベント・説明会","その他"],"","選択してください")}</select></div><div class="field"><label>都道府県</label><select name="prefecture" required>${optionList(PREFECTURES,"","選択してください")}</select></div><div class="field"><label>市区町村</label><input name="city"></div><div class="field"><label>診療科（カンマ区切り）</label><input name="specialties"></div><div class="field"><label>開始日</label><input type="date" name="start_date"></div><div class="field"><label>応募締切</label><input type="date" name="application_deadline"></div><div class="field span2"><label>一覧用概要</label><textarea name="summary" required></textarea></div><div class="field span2"><label>募集内容</label><textarea name="details"></textarea></div><div class="field span2"><label>応募条件</label><textarea name="requirements"></textarea></div><div class="span2"><button class="btn primary" type="submit">下書き保存</button></div></form></div></div>`}
+function hospitalApplications(rows){return rows.length?`<div class="table-wrap"><table><thead><tr><th>学生</th><th>大学</th><th>募集</th><th>応募日</th><th>状態</th><th></th></tr></thead><tbody>${rows.map(r=>`<tr><td>${escapeHtml(r.profiles?.display_name||"学生")}</td><td>${escapeHtml(r.student_profiles?.university||"—")}</td><td>${escapeHtml(r.jobs?.title||"")}</td><td>${fmtDate(r.created_at)}</td><td><span class="status ${escapeHtml(r.status)}">${escapeHtml(r.status)}</span></td><td><div class="actions"><button class="btn small success" data-application-status="accepted" data-id="${r.id}">受付</button><button class="btn small danger" data-application-status="rejected" data-id="${r.id}">見送り</button></div></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">応募はまだありません。</div>`}
+async function studentSearchPanel(hospital){
+  if(hospital.verification_status!=="verified") return `<div class="notice warn">病院確認が完了すると学生検索を利用できます。</div>`;
+  const {data:students,error}=await state.supabase.from("student_profiles").select("user_id,university,graduation_year,desired_specialties,desired_prefectures,bio,profiles!student_profiles_user_id_fkey(display_name)").eq("is_searchable",true).eq("status","active").limit(50);
+  if(error) return `<div class="notice error">学生情報を取得できません：${escapeHtml(error.message)}</div>`;
+  return `<div class="toolbar"><h2>学生検索</h2><span class="result-summary">${students?.length||0} 名</span></div>${students?.length?`<div class="table-wrap"><table><thead><tr><th>学生</th><th>大学</th><th>卒業予定</th><th>希望診療科</th><th>希望地域</th><th></th></tr></thead><tbody>${students.map(s=>`<tr><td>${escapeHtml(s.profiles?.display_name||"学生")}</td><td>${escapeHtml(s.university||"—")}</td><td>${escapeHtml(s.graduation_year||"—")}</td><td>${escapeHtml((s.desired_specialties||[]).join(" / ")||"—")}</td><td>${escapeHtml((s.desired_prefectures||[]).join(" / ")||"—")}</td><td><button class="btn small secondary" data-scout-student="${s.user_id}">スカウト</button></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">現在検索対象の学生はいません。</div>`}`;
+}
+function hospitalScouts(rows){return rows.length?`<div class="table-wrap"><table><thead><tr><th>学生</th><th>大学</th><th>募集</th><th>送信日</th><th>状態</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${escapeHtml(r.profiles?.display_name||"学生")}</td><td>${escapeHtml(r.student_profiles?.university||"—")}</td><td>${escapeHtml(r.jobs?.title||"—")}</td><td>${fmtDate(r.created_at)}</td><td><span class="status ${escapeHtml(r.status)}">${escapeHtml(r.status)}</span></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">まだスカウトを送信していません。</div>`}
+
+async function adminDashboard() {
+  if(state.profile?.role!=="admin") return shellMessage("運営管理","管理者権限がありません。");
+  const [{data:hospitals},{data:profiles}] = await Promise.all([
+    state.supabase.from("hospitals").select("*").order("created_at",{ascending:false}),
+    state.supabase.from("profiles").select("id,display_name,role,status,created_at").order("created_at",{ascending:false}).limit(200)
+  ]);
+  const nav=dashButton("overview","概要")+dashButton("hospitals","病院審査")+dashButton("users","ユーザー管理");
+  const pending=(hospitals||[]).filter(h=>h.verification_status==="pending").length;
+  let content="";
+  if(state.activeDashTab==="overview") content=`<div class="stats"><div class="stat"><strong>${pending}</strong><span>病院審査待ち</span></div><div class="stat"><strong>${hospitals?.length||0}</strong><span>病院</span></div><div class="stat"><strong>${profiles?.length||0}</strong><span>ユーザー</span></div></div><div class="notice">病院審査では公式サイト・所在地・担当者所属を確認してから承認してください。</div>`;
+  if(state.activeDashTab==="hospitals") content=adminHospitals(hospitals||[]);
+  if(state.activeDashTab==="users") content=adminUsers(profiles||[]);
+  return dashFrame(nav,content);
+}
+function adminHospitals(rows){return `<div class="toolbar"><h2>病院審査</h2><span class="result-summary">${rows.length} 件</span></div>${rows.length?`<div class="table-wrap"><table><thead><tr><th>病院名</th><th>所在地</th><th>Web</th><th>状態</th><th>登録日</th><th></th></tr></thead><tbody>${rows.map(h=>`<tr><td>${escapeHtml(h.name)}</td><td>${escapeHtml([h.prefecture,h.city].filter(Boolean).join(" "))}</td><td>${h.website?`<a href="${escapeHtml(h.website)}" target="_blank" rel="noopener noreferrer">確認</a>`:"—"}</td><td><span class="status ${escapeHtml(h.verification_status)}">${escapeHtml(h.verification_status)}</span></td><td>${fmtDate(h.created_at)}</td><td><div class="actions"><button class="btn small success" data-hospital-verify="verified" data-id="${h.id}">承認</button><button class="btn small danger" data-hospital-verify="rejected" data-id="${h.id}">却下</button></div></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">病院登録はありません。</div>`}`}
+function adminUsers(rows){return `<div class="toolbar"><h2>ユーザー管理</h2><span class="result-summary">${rows.length} 件</span></div><div class="table-wrap"><table><thead><tr><th>表示名</th><th>種別</th><th>状態</th><th>登録日</th><th></th></tr></thead><tbody>${rows.map(p=>`<tr><td>${escapeHtml(p.display_name||"—")}</td><td>${escapeHtml(p.role)}</td><td><span class="status ${escapeHtml(p.status)}">${escapeHtml(p.status)}</span></td><td>${fmtDate(p.created_at)}</td><td>${p.role!=="admin"?`<button class="btn small ${p.status==='active'?'danger':'success'}" data-user-status="${p.status==='active'?'suspended':'active'}" data-id="${p.id}">${p.status==='active'?'停止':'有効化'}</button>`:"—"}</td></tr>`).join("")}</tbody></table></div>`}
+
+function aboutPage(){return `${header("")}<main class="page"><div class="breadcrumbs"><a href="#/">トップ</a> &gt; MedMatchについて</div><div class="detail-main"><h1 class="detail-title">MedMatchについて</h1><section class="detail-section"><h2>目的</h2><p>医学生が病院の募集を探して応募でき、確認済み病院が公開プロフィールから学生を検索してスカウトできる、双方向型のキャリア情報プラットフォームです。</p></section><section class="detail-section"><h2>主な機能</h2><p>募集検索・詳細閲覧、医学生プロフィール、応募管理、病院による募集掲載・学生検索・スカウト、運営による病院審査・アカウント管理を備えています。</p></section></div></main>${footer()}`}
+
+async function render() {
+  state.route=parseRoute();
+  let html="";
+  try {
+    if(state.route.name==="home") html=homePage();
+    else if(state.route.name==="jobs" && state.route.parts.length===1) html=jobsPage();
+    else if(state.route.name==="jobs" && state.route.parts[1]) html=await jobDetailPage(state.route.parts[1]);
+    else if(state.route.name==="hospitals" && state.route.parts[1]) html=await hospitalDetailPage(state.route.parts[1]);
+    else if(state.route.name==="login") html=loginPage();
+    else if(state.route.name==="register") html=registerPage();
+    else if(state.route.name==="dashboard") html=await dashboardPage();
+    else if(state.route.name==="admin") { state.activeDashTab="hospitals"; html=await adminDashboard(); }
+    else if(state.route.name==="about") html=aboutPage();
+    else html=shellMessage("ページが見つかりません","指定されたページは存在しません。");
+  } catch(error) {
+    console.error(error);
+    html=`${header("")}<main class="page"><div class="notice error"><strong>画面の読み込み中にエラーが発生しました。</strong><br>${escapeHtml(error?.message||String(error))}</div><p><a href="#/">トップへ戻る</a></p></main>${footer()}`;
+  }
+  root.innerHTML=html;
+  bindEvents();
+}
+
+function bindEvents() {
+  document.getElementById("search-form")?.addEventListener("submit", e=>{e.preventDefault();const f=new FormData(e.currentTarget);state.filters={keyword:f.get("keyword")||"",prefecture:f.get("prefecture")||"",specialty:f.get("specialty")||"",jobType:f.get("jobType")||""};if(state.route.name!=="jobs") location.hash="#/jobs"; else render();});
+  document.getElementById("search-reset")?.addEventListener("click",()=>{state.filters={keyword:"",prefecture:"",specialty:"",jobType:""};render();});
+  document.querySelectorAll("[data-filter]").forEach(el=>el.addEventListener("change",()=>{state.filters[el.dataset.filter]=el.value;render();}));
+  document.getElementById("login-form")?.addEventListener("submit",handleLogin);
+  document.getElementById("register-form")?.addEventListener("submit",handleRegister);
+  document.getElementById("logout-btn")?.addEventListener("click",handleLogout);
+  document.querySelectorAll("[data-dash-tab]").forEach(b=>b.addEventListener("click",()=>{state.activeDashTab=b.dataset.dashTab;render();}));
+  document.getElementById("student-profile-form")?.addEventListener("submit",saveStudentProfile);
+  document.getElementById("hospital-create-form")?.addEventListener("submit",createHospital);
+  document.getElementById("new-job-toggle")?.addEventListener("click",()=>{const a=document.getElementById("new-job-area");a.hidden=!a.hidden;});
+  document.getElementById("job-create-form")?.addEventListener("submit",createJob);
+  document.getElementById("apply-job")?.addEventListener("click",applyJob);
+  document.querySelectorAll("[data-job-status]").forEach(b=>b.addEventListener("click",()=>updateJobStatus(b.dataset.id,b.dataset.jobStatus)));
+  document.querySelectorAll("[data-application-status]").forEach(b=>b.addEventListener("click",()=>updateApplicationStatus(b.dataset.id,b.dataset.applicationStatus)));
+  document.querySelectorAll("[data-scout-action]").forEach(b=>b.addEventListener("click",()=>updateScoutStatus(b.dataset.id,b.dataset.scoutAction)));
+  document.querySelectorAll("[data-scout-student]").forEach(b=>b.addEventListener("click",()=>sendScout(b.dataset.scoutStudent)));
+  document.querySelectorAll("[data-hospital-verify]").forEach(b=>b.addEventListener("click",()=>verifyHospital(b.dataset.id,b.dataset.hospitalVerify)));
+  document.querySelectorAll("[data-user-status]").forEach(b=>b.addEventListener("click",()=>updateUserStatus(b.dataset.id,b.dataset.userStatus)));
+}
+
+async function handleLogin(e){e.preventDefault();if(!state.supabase)return toast("Supabaseに接続できていません");const f=new FormData(e.currentTarget);const {error}=await state.supabase.auth.signInWithPassword({email:f.get("email"),password:f.get("password")});if(error)return dbError(error);toast("ログインしました");location.hash="#/dashboard";}
+async function handleRegister(e){e.preventDefault();if(!state.supabase)return toast("Supabaseに接続できていません");const f=new FormData(e.currentTarget);const {data,error}=await state.supabase.auth.signUp({email:f.get("email"),password:f.get("password"),options:{data:{role:f.get("role"),display_name:f.get("display_name")}}});if(error)return dbError(error);toast(data.session?"登録しました":"確認メールを送信しました");if(data.session)location.hash="#/dashboard";else location.hash="#/login";}
+async function handleLogout(){const {error}=await state.supabase.auth.signOut();if(error)return dbError(error);state.profile=null;state.activeDashTab="overview";location.hash="#/";}
+function csvArray(v){return String(v||"").split(",").map(x=>x.trim()).filter(Boolean)}
+async function saveStudentProfile(e){e.preventDefault();const f=new FormData(e.currentTarget);const payload={user_id:state.session.user.id,university:f.get("university"),graduation_year:f.get("graduation_year")?Number(f.get("graduation_year")):null,desired_specialties:csvArray(f.get("desired_specialties")),desired_prefectures:csvArray(f.get("desired_prefectures")),bio:f.get("bio")||null,is_searchable:f.get("is_searchable")==="on",status:"active",updated_at:new Date().toISOString()};const {error}=await state.supabase.from("student_profiles").upsert(payload,{onConflict:"user_id"});if(error)return dbError(error);toast("プロフィールを保存しました");render();}
+async function createHospital(e){e.preventDefault();const f=new FormData(e.currentTarget);const {data:h,error}=await state.supabase.from("hospitals").insert({name:f.get("name"),prefecture:f.get("prefecture"),city:f.get("city"),website:f.get("website")||null,description:f.get("description")||null,verification_status:"pending",created_by:state.session.user.id}).select().single();if(error)return dbError(error);const {error:me}=await state.supabase.from("hospital_members").insert({hospital_id:h.id,user_id:state.session.user.id,member_role:"owner"});if(me)return dbError(me);toast("病院情報を登録しました。運営確認待ちです。");render();}
+async function currentHospitalId(){const {data}=await state.supabase.from("hospital_members").select("hospital_id").eq("user_id",state.session.user.id).limit(1).maybeSingle();return data?.hospital_id}
+async function createJob(e){e.preventDefault();const f=new FormData(e.currentTarget);const hospital_id=await currentHospitalId();const payload={hospital_id,title:f.get("title"),job_type:f.get("job_type"),prefecture:f.get("prefecture"),city:f.get("city")||null,specialties:csvArray(f.get("specialties")),start_date:f.get("start_date")||null,application_deadline:f.get("application_deadline")||null,summary:f.get("summary"),details:f.get("details")||null,requirements:f.get("requirements")||null,status:"draft"};const {error}=await state.supabase.from("jobs").insert(payload);if(error)return dbError(error);toast("募集を下書き保存しました");render();}
+async function updateJobStatus(id,status){const {error}=await state.supabase.from("jobs").update({status,updated_at:new Date().toISOString()}).eq("id",id);if(error)return dbError(error);toast("募集状態を更新しました");await loadPublicJobs();render();}
+async function applyJob(){const id=document.getElementById("apply-job")?.dataset.id;if(!id)return;const motivation=prompt("応募メッセージ（任意）を入力してください。","");if(motivation===null)return;const {error}=await state.supabase.from("applications").insert({job_id:id,student_id:state.session.user.id,motivation:motivation||null,status:"submitted"});if(error)return dbError(error);toast("応募しました");}
+async function updateApplicationStatus(id,status){const {error}=await state.supabase.from("applications").update({status,updated_at:new Date().toISOString()}).eq("id",id);if(error)return dbError(error);toast("応募状態を更新しました");render();}
+async function updateScoutStatus(id,status){const {error}=await state.supabase.from("scouts").update({status,updated_at:new Date().toISOString()}).eq("id",id);if(error)return dbError(error);toast("スカウト状態を更新しました");render();}
+async function sendScout(student_id){const hid=await currentHospitalId();const msg=prompt("学生へのスカウトメッセージを入力してください。","");if(msg===null||!msg.trim())return;const {data:jobs}=await state.supabase.from("jobs").select("id,title").eq("hospital_id",hid).eq("status","published").order("created_at",{ascending:false});let job_id=null;if(jobs?.length===1)job_id=jobs[0].id;const {error}=await state.supabase.from("scouts").insert({hospital_id:hid,student_id,job_id,message:msg.trim(),status:"sent"});if(error)return dbError(error);toast("スカウトを送信しました");state.activeDashTab="scouts";render();}
+async function verifyHospital(id,status){const {error}=await state.supabase.from("hospitals").update({verification_status:status,verified_at:status==="verified"?new Date().toISOString():null}).eq("id",id);if(error)return dbError(error);toast(status==="verified"?"病院を承認しました":"病院を却下しました");render();}
+async function updateUserStatus(id,status){const {error}=await state.supabase.from("profiles").update({status}).eq("id",id);if(error)return dbError(error);toast("ユーザー状態を更新しました");render();}
+
+window.addEventListener("hashchange",()=>{state.activeDashTab="overview";render();});
+window.addEventListener("error",e=>console.error("window error",e.error||e.message));
+window.addEventListener("unhandledrejection",e=>console.error("unhandled rejection",e.reason));
+
+init();
