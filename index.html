@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MedMatch — 医学生と病院をつなぐ採用プラットフォーム</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="profile-ui.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo">M</div>
+        <div>
+          <div class="brand-name">MedMatch</div>
+          <div class="brand-sub">医学生 × 病院 採用プラットフォーム</div>
+        </div>
+      </div>
+      <div class="role-switch">
+        <button data-role="student" class="role-btn active">医学生</button>
+        <button data-role="hospital" class="role-btn">病院</button>
+        <button data-role="admin" class="role-btn">運営</button>
+      </div>
+      <div class="user-chip" id="userChip">長峰 実央さん</div>
+    </header>
+
+    <div class="shell">
+      <aside class="sidebar" id="sidebar"></aside>
+      <main class="main" id="main"></main>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+  <script src="profile-ui.js"></script>
+</body>
+</html>
