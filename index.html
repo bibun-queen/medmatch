@@ -3,34 +3,16 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>MedMatch — 医学生と病院をつなぐ採用プラットフォーム</title>
-  <link rel="stylesheet" href="styles.css" />
+  <meta name="description" content="医学生と病院をつなぐ採用・見学・スカウトプラットフォーム MedMatch" />
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://*.supabase.co wss://*.supabase.co; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests" />
+  <title>MedMatch — 医学生 × 病院</title>
+  <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
-  <div id="app">
-    <header class="topbar">
-      <div class="brand">
-        <div class="logo">M</div>
-        <div>
-          <div class="brand-name">MedMatch</div>
-          <div class="brand-sub">医学生 × 病院 採用プラットフォーム</div>
-        </div>
-      </div>
-      <div class="role-switch">
-        <button data-role="student" class="role-btn active">医学生</button>
-        <button data-role="hospital" class="role-btn">病院</button>
-        <button data-role="admin" class="role-btn">運営</button>
-      </div>
-      <div class="user-chip" id="userChip">医学生 #2831</div>
-    </header>
-
-    <div class="shell">
-      <aside class="sidebar" id="sidebar"></aside>
-      <main class="main" id="main"></main>
-    </div>
-  </div>
-
+  <noscript>MedMatch を利用するには JavaScript を有効にしてください。</noscript>
+  <div id="root"></div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="app.js"></script>
+  <script type="module" src="./src/main.js"></script>
 </body>
 </html>

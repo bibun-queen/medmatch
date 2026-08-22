@@ -1,36 +1,19 @@
-# MedMatch — 初期UI維持 / デモデータ削除 / 詳細ページ版
+# MedMatch — クローズドβ向けMVP
 
-初期のMedMatchデザイン（白いトップバー、青いMロゴ、左サイドバー、角丸カード）を維持した版です。
+医学生・病院・運営の3ロールを持つ、Supabase接続型の静的Webアプリです。
 
-## 今回の変更
+## 最初にやること
+1. GitHubへこのフォルダ一式をアップロード
+2. GitHub PagesをGitHub Actionsで有効化
+3. Supabaseプロジェクトを作成
+4. `supabase/migrations/001_init.sql` をSQL Editorで実行
+5. `config.js` にProject URLとPublishable keyを設定してGitHubへ反映
+6. Supabase AuthのSite URL / Redirect URLをGitHub Pages URLに設定
+7. 医学生・病院を新規登録
+8. 管理者ユーザーを作り `supabase/ADMIN_SETUP.sql` を実行
 
-- 前版に含まれていたデモ登録データを削除
-  - 医学生
-  - 病院
-  - スカウト
-  - 見学・応募
-  - 募集
-  - ダッシュボードの架空件数
-- 初回起動時に旧デモ用localStorageも一度削除
-- 募集詳細を独立した詳細画面に変更
-- 新規募集作成ページを追加
-- 募集編集ページを追加
-- 応募・見学詳細ページを追加
-- スカウト詳細ページを追加
-- 学生プロフィール詳細ページを追加
-- 病院詳細ページを追加
-- 大学名候補、学年プルダウン、卒業年度プルダウンは維持
-
-## GitHubへ置くファイル
-
-- index.html
-- styles.css
-- app.js
-- README.md
-
-## 重要
-
-この版で削除するのは、前版フロントエンドに埋め込まれていた架空のデモデータとブラウザlocalStorageのデモ値です。
-Supabase上に実在する行を削除するSQLは実行していません。
-
-実際のSupabaseの登録データも削除する場合は、対象テーブルを確認したうえで別途削除処理が必要です。
+## 注意
+- `sb_secret_...` や service-role key はGitHubへ絶対に置かないでください。
+- ブラウザに置いてよいのはPublishable keyです。
+- `privacy.html` と `terms.html` はドラフトです。一般公開前に法務確認が必要です。
+- 本番前に独自SMTP、MFA、バックアップ、監視、問い合わせ窓口を整備してください。

@@ -1,5 +1,5 @@
 export const CONFIG = {
-  supabaseUrl: "https://tbahaqcctejyynhxjbch.supabase.co",
-  supabasePublishableKey: "sb_publishable_3DkEsr95r70rg11LcOjQqQ_Axz00edY",
+  supabaseUrl: "https://YOUR_PROJECT.supabase.co",
+  supabasePublishableKey: "sb_publishable_REPLACE_ME",
   appName: "MedMatch",
 };
