@@ -39,3 +39,9 @@
 - `service_role`、Secret key、DBパスワードはGitHubへ置かない。
 - RLSは `001_init.sql` に含まれる。
 - 本番公開前にメール確認、MFA、独自SMTP、バックアップ、監査、利用規約・プライバシーポリシーの法務確認を行う。
+
+
+## 起動ファイル
+- `index.html` と同じ階層の `app.js` が画面本体です。
+- `src/main.js` は互換用コピーで、GitHub Pages の起動には使いません。
+- JavaScript が読めない場合でも `boot-check.js` がエラー表示へ切り替えるため、「読み込み中」のまま固定されません。

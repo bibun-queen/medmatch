@@ -1,4 +1,10 @@
-import { CONFIG } from "../config.js";
+window.__MEDMATCH_STARTED__ = true;
+
+const CONFIG = {
+  supabaseUrl: "https://tbahaqcctejyynhxjbch.supabase.co",
+  supabasePublishableKey: "sb_publishable_3DkEsr95r70rg11LcOjQqQ_Axz00edY",
+  appName: "MedMatch",
+};
 
 const root = document.getElementById("root");
 const toastEl = document.getElementById("toast");
