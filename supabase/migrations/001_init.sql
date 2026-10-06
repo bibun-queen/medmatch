@@ -94,21 +94,25 @@ create table if not exists public.audit_logs (
   created_at timestamptz not null default now()
 );
 
-create or replace function public.handle_new_user()
+create or replace function public.guard_profile_update()
 returns trigger
 language plpgsql
-security definer set search_path = public
+security definer
+set search_path=public
 as $$
-declare r text;
 begin
-  r := coalesce(new.raw_user_meta_data->>'role','student');
-  if r not in ('student','hospital') then r := 'student'; end if;
-  insert into public.profiles(id,role,display_name)
-  values(new.id,r,coalesce(new.raw_user_meta_data->>'display_name',split_part(new.email,'@',1)))
-  on conflict (id) do nothing;
-  return new;
-end;$$;
+  if not public.is_admin()
+     and (
+       new.role is distinct from old.role
+       or new.status is distinct from old.status
+     )
+  then
+    raise exception 'role/status can only be changed by admin';
+  end if;
 
+  return new;
+end;
+$$;
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created after insert on auth.users for each row execute procedure public.handle_new_user();
 
