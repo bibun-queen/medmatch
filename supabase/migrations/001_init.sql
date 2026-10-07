@@ -179,7 +179,15 @@ create policy jobs_member_update on public.jobs for update using (public.is_hosp
 create policy jobs_member_delete on public.jobs for delete using (public.is_hospital_member(hospital_id) or public.is_admin());
 
 create policy applications_student_select on public.applications for select using (student_id=auth.uid() or exists(select 1 from public.jobs j where j.id=job_id and public.is_hospital_member(j.hospital_id)) or public.is_admin());
-create policy applications_student_insert on public.applications for insert to authenticated with check (student_id=auth.uid() and status='submitted');
+create policy applications_student_insert
+on public.applications
+for insert
+to authenticated
+with check (
+  student_id = auth.uid()
+  and public.is_active_student()
+  and status = 'submitted'
+);
 create policy applications_student_update on public.applications for update using (student_id=auth.uid() or exists(select 1 from public.jobs j where j.id=job_id and public.is_hospital_member(j.hospital_id)) or public.is_admin());
 
 create policy scouts_participants_select on public.scouts for select using (student_id=auth.uid() or public.is_hospital_member(hospital_id) or public.is_admin());
