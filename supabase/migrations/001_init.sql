@@ -94,21 +94,35 @@ create table if not exists public.audit_logs (
   created_at timestamptz not null default now()
 );
 
-create or replace function public.guard_profile_update()
+create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
 security definer
-set search_path=public
+set search_path = public
 as $$
+declare
+  r text;
 begin
-  if not public.is_admin()
-     and (
-       new.role is distinct from old.role
-       or new.status is distinct from old.status
-     )
-  then
-    raise exception 'role/status can only be changed by admin';
+  r := coalesce(new.raw_user_meta_data->>'role', 'student');
+
+  if r not in ('student', 'hospital') then
+    r := 'student';
   end if;
+
+  insert into public.profiles (
+    id,
+    role,
+    display_name
+  )
+  values (
+    new.id,
+    r,
+    coalesce(
+      new.raw_user_meta_data->>'display_name',
+      split_part(new.email, '@', 1)
+    )
+  )
+  on conflict (id) do nothing;
 
   return new;
 end;
@@ -120,10 +134,49 @@ create or replace function public.is_admin()
 returns boolean language sql stable security definer set search_path=public as $$
   select exists(select 1 from public.profiles p where p.id=auth.uid() and p.role='admin' and p.status='active');
 $$;
+
 create or replace function public.is_hospital_member(hid uuid)
-returns boolean language sql stable security definer set search_path=public as $$
-  select exists(select 1 from public.hospital_members hm where hm.hospital_id=hid and hm.user_id=auth.uid());
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.hospital_members hm
+    join public.profiles p
+      on p.id = hm.user_id
+    where hm.hospital_id = hid
+      and hm.user_id = auth.uid()
+      and p.role = 'hospital'
+      and p.status = 'active'
+  );
 $$;
+
+grant execute on function public.is_hospital_member(uuid)
+to authenticated;
+
+
+create or replace function public.is_active_student()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.profiles p
+    where p.id = auth.uid()
+      and p.role = 'student'
+      and p.status = 'active'
+  );
+$$;
+
+grant execute on function public.is_active_student()
+to authenticated;
+
 create or replace function public.is_verified_hospital_member()
 returns boolean
 language sql
@@ -199,15 +252,29 @@ create policy audit_admin_insert on public.audit_logs for insert with check (pub
 
 
 
+
+
 -- 権限昇格・病院自己承認・不正な状態遷移をDB側で防止する。
 create or replace function public.guard_profile_update()
-returns trigger language plpgsql security definer set search_path=public as $$
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
 begin
-  if not public.is_admin() and (new.role is distinct from old.role or new.status is distinct from old.status) then
+  if auth.uid() is not null
+     and not public.is_admin()
+     and (
+       new.role is distinct from old.role
+       or new.status is distinct from old.status
+     )
+  then
     raise exception 'role/status can only be changed by admin';
   end if;
+
   return new;
-end;$$;
+end;
+$$;
 drop trigger if exists trg_guard_profile_update on public.profiles;
 create trigger trg_guard_profile_update before update on public.profiles for each row execute procedure public.guard_profile_update();
 
