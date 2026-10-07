@@ -125,13 +125,28 @@ returns boolean language sql stable security definer set search_path=public as $
   select exists(select 1 from public.hospital_members hm where hm.hospital_id=hid and hm.user_id=auth.uid());
 $$;
 create or replace function public.is_verified_hospital_member()
-returns boolean language sql stable security definer set search_path=public as $$
-  select exists(select 1 from public.hospital_members hm join public.hospitals h on h.id=hm.hospital_id where hm.user_id=auth.uid() and h.verification_status='verified');
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.hospital_members hm
+    join public.hospitals h
+      on h.id = hm.hospital_id
+    join public.profiles p
+      on p.id = hm.user_id
+    where hm.user_id = auth.uid()
+      and p.role = 'hospital'
+      and p.status = 'active'
+      and h.verification_status = 'verified'
+  );
 $$;
 
-grant execute on function public.is_admin() to anon, authenticated;
-grant execute on function public.is_hospital_member(uuid) to authenticated;
-grant execute on function public.is_verified_hospital_member() to authenticated;
+grant execute on function public.is_verified_hospital_member()
+to authenticated;
 
 alter table public.profiles enable row level security;
 alter table public.student_profiles enable row level security;
