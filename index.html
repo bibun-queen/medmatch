@@ -981,7 +981,7 @@ async function hospitalDashboard() {
   if (jobsResult.error) console.warn("hospital jobs load", jobsResult.error);
   if (appsResult.error) console.warn("hospital applications load", appsResult.error);
   if (scoutsResult.error) console.warn("hospital scouts load", scoutsResult.error);
-  const nav=dashButton("overview","概要")+dashButton("jobs","募集管理")+dashButton("applications","応募者")+dashButton("students","学生検索")+dashButton("scouts","スカウト")+dashButton("notifications",!matchingNoticeError&&matchingUnreadCount?`お知らせ（${matchingUnreadCount}）`:"お知らせ");
+  const nav=dashButton("overview","概要")+dashButton("jobs","募集管理")+dashButton("applications","応募者")+dashButton("students","学生検索")+dashButton("scouts","スカウト")+dashButton("notifications",!matchingNoticeError&&matchingUnreadCount?`お知らせ（${matchingUnreadCount}）`:"お知らせ")+dashButton("account","退会申請");
   let content="";
   if(state.activeDashTab==="overview") {
     const openJobs=jobs.filter(j=>j.status==="published").length;
@@ -1015,7 +1015,90 @@ async function hospitalDashboard() {
   if(state.activeDashTab==="students") content=await studentSearchPanel(hospital);
   if(state.activeDashTab==="scouts") content=dashLoadError(scoutsResult.error,"スカウト情報")||`${dashLoadError(matchingHistoryResult.error,"変更履歴")}${hospitalScouts(scouts,histories)}`;
   if(state.activeDashTab==="notifications") content=matchingNotificationsPanel(matchNotifications,matchingUnreadCount,matchingNoticeError,apps,scouts);
+  if(state.activeDashTab==="account") content=await hospitalAccountDeletionPanel(hospital);
   return dashFrame(nav,content);
+}
+
+
+const HOSPITAL_ACCOUNT_DELETION_STATUSES=Object.freeze({
+  pending:"審査待ち",approved:"承認済み（削除未実行）",rejected:"却下"
+});
+
+async function hospitalAccountDeletionPanel(hospital){
+  const uid=state.session?.user?.id;
+  if(!uid || state.profile?.role!=="hospital")return `<div class="notice error">病院担当者のみ申請できます。</div>`;
+  const {data, error}=await state.supabase.from("hospital_account_deletion_requests")
+    .select("id,hospital_id,reason,status,admin_note,created_at,reviewed_at")
+    .eq("requested_by",uid).eq("hospital_id",hospital.id)
+    .order("created_at",{ascending:false}).limit(30);
+  if(error)return `<div class="notice error">退会申請を取得できません：${escapeHtml(error.message)}</div>`;
+  const requests=data||[];
+  const hasOpen=requests.some(r=>r.status==="pending"||r.status==="approved");
+  const history=requests.length?`<div class="table-wrap"><table><thead><tr><th>申請日</th><th>状態</th><th>退会理由</th><th>審査日</th><th>管理者からの連絡</th></tr></thead><tbody>${requests.map(r=>`<tr><td>${fmtDate(r.created_at)}</td><td>${escapeHtml(HOSPITAL_ACCOUNT_DELETION_STATUSES[r.status]||r.status)}</td><td>${escapeHtml(r.reason)}</td><td>${r.reviewed_at?fmtDate(r.reviewed_at):"—"}</td><td>${escapeHtml(r.admin_note||"—")}</td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">まだ退会申請はありません。</div>`;
+  return `<div class="panel"><div class="panel-head">病院担当者アカウントの退会申請</div><div class="panel-body">
+    <p><strong>対象病院：</strong>${escapeHtml(hospital.name)}</p>
+    <div class="notice warn">退会を申請してもアカウントや募集情報は削除されません。運営管理者が募集・応募・引継ぎ状況を確認します。承認後の実際の削除は別途、運営者が対応します。</div>
+    <p>この申請は現在ログインしている<strong>担当者個人のアカウント</strong>に関するものです。病院全体の掲載停止・削除申請とは異なります。</p>
+    <form id="hospital-delete-request-form" data-hospital-id="${escapeHtml(hospital.id)}">
+      <div class="field"><label>退会理由（5～1000文字）</label><textarea name="reason" required minlength="5" maxlength="1000" placeholder="例：担当業務から外れるため、他の担当者に引き継ぎたい"></textarea></div>
+      <p class="form-help">パスワード・学生の個人情報などは入力しないでください。${hasOpen?"申請が処理中のため、新たな申請はできません。":""}</p>
+      <button type="submit" class="btn ${hasOpen?'':'primary'}" ${hasOpen?'disabled':''}>退会申請を送信する</button>
+    </form>
+  </div></div><div class="toolbar" style="margin-top:20px"><h2>申請履歴</h2></div>${history}`;
+}
+
+async function submitHospitalAccountDeletionRequest(e){
+  e.preventDefault();
+  if(state.profile?.role!=="hospital")return toast("病院担当者のみ申請できます");
+  const form=e.currentTarget;
+  const reason=String(new FormData(form).get("reason")||"").trim();
+  const hospitalId=form.dataset.hospitalId;
+  if(reason.length<5||reason.length>1000)return toast("理由は5～1000文字で入力してください");
+  if(!window.confirm("病院担当者アカウントの退会を申請しますか？申請だけではアカウントは削除されません。"))return;
+  const btn=form.querySelector('button[type="submit"]');
+  if(btn)btn.disabled=true;
+  try{
+    const {error}=await state.supabase.rpc("submit_hospital_account_deletion_request",{
+      p_hospital_id:hospitalId,p_reason:reason
+    });
+    if(error)throw error;
+    toast("退会申請を送信しました。運営管理者の確認をお待ちください。");
+    await render();
+  }catch(error){
+    dbError(error,"退会申請を送信できませんでした");
+    if(btn)btn.disabled=false;
+  }
+}
+
+async function adminHospitalDeletionPanel(hospitals,profiles){
+  if(state.profile?.role!=="admin")return `<div class="notice error">管理者のみ閲覧できます。</div>`;
+  const {data,error}=await state.supabase.from("hospital_account_deletion_requests")
+    .select("id,hospital_id,requested_by,reason,status,admin_note,created_at,reviewed_at")
+    .order("created_at",{ascending:false}).limit(200);
+  if(error)return `<div class="notice error">退会申請を取得できません：${escapeHtml(error.message)}</div>`;
+  const hospitalNames=new Map(hospitals.map(h=>[h.id,h.name]));
+  const requesterNames=new Map(profiles.map(p=>[p.id,p.display_name]));
+  const rows=[...(data||[])].sort((a,b)=>Number(b.status==="pending")-Number(a.status==="pending"));
+  return `<div class="toolbar"><h2>病院担当者の退会申請</h2><span class="result-summary">${rows.filter(r=>r.status==="pending").length} 件審査待ち</span></div>
+    <div class="notice warn">「承認」は申請の審査結果を記録するだけです。ログインアカウント・病院情報・募集は削除されません。承認前に公開中の募集、進行中の応募・スカウト、他の担当者への引継ぎを確認してください。</div>
+    ${rows.length?`<div class="table-wrap"><table><thead><tr><th>申請日</th><th>病院</th><th>担当者</th><th>退会理由</th><th>状態</th><th>審査内容</th><th>操作</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${fmtDate(r.created_at)}</td><td>${escapeHtml(hospitalNames.get(r.hospital_id)||"病院情報なし")}</td><td>${escapeHtml(requesterNames.get(r.requested_by)||String(r.requested_by||"不明").slice(0,8)+"…")}</td><td>${escapeHtml(r.reason)}</td><td>${escapeHtml(HOSPITAL_ACCOUNT_DELETION_STATUSES[r.status]||r.status)}</td><td>${escapeHtml(r.admin_note||"—")}</td><td><div class="actions">${r.status==="pending"?`<button type="button" class="btn small success" data-hospital-deletion-review="approved" data-request-id="${escapeHtml(r.id)}">承認（削除しない）</button><button type="button" class="btn small danger" data-hospital-deletion-review="rejected" data-request-id="${escapeHtml(r.id)}">却下</button>`:"—"}</div></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">退会申請はありません。</div>`}`;
+}
+
+async function reviewHospitalDeletionRequest(id,decision){
+  if(state.profile?.role!=="admin")return toast("管理者権限が必要です");
+  if(!["approved","rejected"].includes(decision))return;
+  const label=decision==="approved"?"承認":"却下";
+  const note=window.prompt(`${label}理由と引継ぎ状況を5～1000文字で入力してください。\nこの操作ではアカウントは削除されません。`,"");
+  if(note===null)return;
+  const cleaned=note.trim();
+  if(cleaned.length<5||cleaned.length>1000)return toast("審査内容は5～1000文字で入力してください");
+  if(!window.confirm(`この退会申請を${label}しますか？申請状態のみ変更します。`))return;
+  const {error}=await state.supabase.rpc("review_hospital_account_deletion_request",{
+    p_request_id:id,p_decision:decision,p_admin_note:cleaned
+  });
+  if(error)return dbError(error,"退会申請の審査に失敗しました");
+  toast(`退会申請を${label}しました（アカウントは削除していません）。`);
+  await render();
 }
 
 function hospitalCreateForm(){return `<div class="panel"><div class="panel-head">病院情報登録</div><div class="panel-body"><form id="hospital-create-form" class="form-grid"><div class="field span2"><label>病院名</label><input name="name" required></div><div class="field"><label>都道府県</label><select name="prefecture" required>${optionList(PREFECTURES,"","選択してください")}</select></div><div class="field"><label>市区町村</label><input name="city" required></div><div class="field span2"><label>住所</label><input name="address" required></div><div class="field"><label>病院種別</label><input name="hospital_type" required placeholder="例：大学病院、一般病院"></div><div class="field"><label>公式Webサイト</label><input name="website" type="url" placeholder="https://..."></div><div class="field span2"><label>病院紹介</label><textarea name="description"></textarea></div><div class="field span2"><label>給与・待遇</label><textarea name="salary_text"></textarea></div><div class="field span2"><label>当直</label><textarea name="oncall_text"></textarea></div><div class="field span2"><label>救急体制</label><textarea name="emergency_text"></textarea></div><div class="span2"><button class="btn primary" type="submit">病院情報を登録する</button></div></form></div></div>`}
@@ -1174,7 +1257,7 @@ async function adminDashboard() {
     state.supabase.from("hospitals").select("*").order("created_at",{ascending:false}),
     state.supabase.from("profiles").select("id,display_name,role,status,created_at").order("created_at",{ascending:false}).limit(200)
   ]);
-  const nav=dashButton("overview","概要")+dashButton("hospitals","病院審査")+dashButton("documents","学生認証")+dashButton("audit","審査履歴")+dashButton("users","ユーザー管理");
+  const nav=dashButton("overview","概要")+dashButton("hospitals","病院審査")+dashButton("documents","学生認証")+dashButton("audit","審査履歴")+dashButton("users","ユーザー管理")+dashButton("hospital-deletion","退会申請");
   const pending=(hospitals||[]).filter(h=>h.status==="pending").length;
   let content="";
   if(state.activeDashTab==="overview") content=`<div class="stats"><div class="stat"><strong>${pending}</strong><span>病院審査待ち</span></div><div class="stat"><strong>${hospitals?.length||0}</strong><span>病院</span></div><div class="stat"><strong>${profiles?.length||0}</strong><span>ユーザー</span></div></div><div class="notice">病院審査では公式サイト・所在地・担当者所属を確認してから承認してください。</div>`;
@@ -1182,6 +1265,7 @@ async function adminDashboard() {
   if(state.activeDashTab==="documents") content=await adminVerificationPanel();
   if(state.activeDashTab==="audit") content=await adminAuditHistoryPanel(profiles||[],hospitals||[]);
   if(state.activeDashTab==="users") content=adminUsers(profiles||[]);
+  if(state.activeDashTab==="hospital-deletion") content=await adminHospitalDeletionPanel(hospitals||[],profiles||[]);
   return dashFrame(nav,content);
 }
 function adminHospitals(rows){
@@ -1229,6 +1313,8 @@ function bindEvents() {
   document.querySelectorAll("[data-dash-tab]").forEach(b=>b.addEventListener("click",()=>{state.activeDashTab=b.dataset.dashTab;render();}));
   document.getElementById("student-profile-form")?.addEventListener("submit",saveStudentProfile);
   document.getElementById("student-delete-form")?.addEventListener("submit",deleteStudentAccount);
+  document.getElementById("hospital-delete-request-form")?.addEventListener("submit",submitHospitalAccountDeletionRequest);
+  document.querySelectorAll("[data-hospital-deletion-review]").forEach(b=>b.addEventListener("click",()=>reviewHospitalDeletionRequest(b.dataset.requestId,b.dataset.hospitalDeletionReview)));
   document.querySelectorAll("[data-verification-notification-read]").forEach(b=>b.addEventListener("click",()=>markVerificationNotificationRead(b.dataset.verificationNotificationRead)));
   document.querySelectorAll("[data-matching-notification-read]").forEach(b=>b.addEventListener("click",()=>markMatchingNotificationRead(b.dataset.matchingNotificationRead)));
   document.getElementById("verification-upload-form")?.addEventListener("submit",uploadVerificationDocument);
