@@ -857,8 +857,6 @@ function studentAccountDeletionPanel() {
   return `<section class="panel"><div class="panel-head">アカウントと退会</div><div class="panel-body">
     <div class="notice warn"><strong>退会すると元に戻せません。</strong><p>ログインアカウント、医学生プロフィール、応募・スカウトの記録、提出した学生証などの本人確認書類が削除対象になります。審査・監査ログには必要な記録が残る場合があります。</p></div>
     <p>選考途中の応募・スカウトがある場合は、事前に相手方と連絡を取ってください。</p>
-    <div class="notice" id="student-delete-preview-result" role="status" aria-live="polite">まず「退会前の安全確認」を押すと、アカウントを削除せずにサーバー側の権限・保存ファイルを確認できます。</div>
-    <p><button id="student-delete-preview" type="button" class="btn secondary">退会前の安全確認（削除しません）</button></p>
     <form id="student-delete-form">
       <div class="field"><label>確認のため、現在のパスワード</label><input type="password" name="password" required autocomplete="current-password"></div>
       <div class="field"><label>確認のため「退会する」と入力してください</label><input type="text" name="confirmation" required autocomplete="off" placeholder="退会する"></div>
@@ -866,50 +864,6 @@ function studentAccountDeletionPanel() {
     </form>
     <p class="form-help">病院・管理者アカウントの削除は運営者へお問い合わせください。</p>
   </div></section>`;
-}
-
-// Read-only preview: the Edge Function returns before its Storage.remove / Auth.deleteUser branches.
-async function previewStudentDeletion(e) {
-  e.preventDefault();
-  const button=e.currentTarget;
-  const result=document.getElementById("student-delete-preview-result");
-  if (!result) return;
-  if (!state.supabase || state.profile?.role !== "student" || !state.session?.user) {
-    result.className="notice error";
-    result.textContent="学生アカウントでログインしてください。";
-    return;
-  }
-  button.disabled=true;
-  result.className="notice";
-  result.textContent="削除せずにサーバー側の安全確認を実行しています…";
-  try {
-    const {data,error}=await state.supabase.functions.invoke("delete-account",{
-      body:{confirmation:"DELETE_MY_STUDENT_ACCOUNT",preview:true}
-    });
-    if (error) {
-      let message=error.message||"通信に失敗しました。";
-      let status=error.context?.status;
-      if (error.context && typeof error.context.json === "function") {
-        try {
-          const details=await error.context.json();
-          if (details && typeof details.message === "string") message=details.message;
-        } catch (_) { /* Show the original error if the response is not JSON. */ }
-      }
-      throw new Error(`${status?`HTTP ${status}: `:""}${message}`);
-    }
-    if (data?.ok!==true || data.preview!==true || data.deleted===true) {
-      throw new Error(data?.message || "確認結果が想定と異なります。退会操作を行わず運営者へ連絡してください。");
-    }
-    const n=Number.isSafeInteger(data.verificationFiles)&&data.verificationFiles>=0 ? data.verificationFiles : "不明";
-    result.className="notice success";
-    result.textContent=`安全確認成功：本人確認書類の保存ファイルは ${n} 件です。アカウント・ファイルは削除していません。`;
-  } catch (error) {
-    console.error("delete-account preflight failed",error);
-    result.className="notice error";
-    result.textContent=`安全確認に失敗しました：${error?.message||String(error)}。退会ボタンは押さないでください。`;
-  } finally {
-    if (button.isConnected) button.disabled=false;
-  }
 }
 
 async function deleteStudentAccount(e) {
@@ -1274,7 +1228,6 @@ function bindEvents() {
   document.getElementById("logout-btn")?.addEventListener("click",handleLogout);
   document.querySelectorAll("[data-dash-tab]").forEach(b=>b.addEventListener("click",()=>{state.activeDashTab=b.dataset.dashTab;render();}));
   document.getElementById("student-profile-form")?.addEventListener("submit",saveStudentProfile);
-  document.getElementById("student-delete-preview")?.addEventListener("click",previewStudentDeletion);
   document.getElementById("student-delete-form")?.addEventListener("submit",deleteStudentAccount);
   document.querySelectorAll("[data-verification-notification-read]").forEach(b=>b.addEventListener("click",()=>markVerificationNotificationRead(b.dataset.verificationNotificationRead)));
   document.querySelectorAll("[data-matching-notification-read]").forEach(b=>b.addEventListener("click",()=>markMatchingNotificationRead(b.dataset.matchingNotificationRead)));
