@@ -1083,7 +1083,7 @@ async function adminHospitalDeletionPanel(hospitals,profiles){
   return `<div class="toolbar"><h2>病院担当者の退会申請</h2><span class="result-summary">${rows.filter(r=>r.status==="pending").length} 件審査待ち</span></div>
     <div class="notice warn">「承認」は申請の審査結果を記録するだけです。ログインアカウント・病院情報・募集は削除されません。承認前に公開中の募集、進行中の応募・スカウト、他の担当者への引継ぎを確認してください。</div>
     <div id="hospital-deletion-preflight-result" hidden></div>
-    ${rows.length?`<div class="table-wrap"><table><thead><tr><th>申請日</th><th>病院</th><th>担当者</th><th>退会理由</th><th>状態</th><th>審査内容</th><th>操作</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${fmtDate(r.created_at)}</td><td>${escapeHtml(hospitalNames.get(r.hospital_id)||"病院情報なし")}</td><td>${escapeHtml(requesterNames.get(r.requested_by)||String(r.requested_by||"不明").slice(0,8)+"…")}</td><td>${escapeHtml(r.reason)}</td><td>${escapeHtml(HOSPITAL_ACCOUNT_DELETION_STATUSES[r.status]||r.status)}</td><td>${escapeHtml(r.admin_note||"—")}</td><td><div class="actions"><button type="button" class="btn small" data-hospital-deletion-preflight="${escapeHtml(r.id)}">退会可否を確認</button>${r.status==="pending"?`<button type="button" class="btn small success" data-hospital-deletion-review="approved" data-request-id="${escapeHtml(r.id)}">承認（削除しない）</button><button type="button" class="btn small danger" data-hospital-deletion-review="rejected" data-request-id="${escapeHtml(r.id)}">却下</button>`:"—"}</div></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">退会申請はありません。</div>`}`;
+    ${rows.length?`<div class="table-wrap"><table><thead><tr><th>申請日</th><th>病院</th><th>担当者</th><th>退会理由</th><th>状態</th><th>審査内容</th><th>操作</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${fmtDate(r.created_at)}</td><td>${escapeHtml(hospitalNames.get(r.hospital_id)||"病院情報なし")}</td><td>${escapeHtml(requesterNames.get(r.requested_by)||String(r.requested_by||"不明").slice(0,8)+"…")}</td><td>${escapeHtml(r.reason)}</td><td>${escapeHtml(HOSPITAL_ACCOUNT_DELETION_STATUSES[r.status]||r.status)}</td><td>${escapeHtml(r.admin_note||"—")}</td><td><div class="actions"><button type="button" class="btn small" data-hospital-deletion-preflight="${escapeHtml(r.id)}">退会可否を確認</button><button type="button" class="btn small" data-hospital-deletion-edge-preview="${escapeHtml(r.id)}">Edge Function動作確認（削除なし）</button>${r.status==="pending"?`<button type="button" class="btn small success" data-hospital-deletion-review="approved" data-request-id="${escapeHtml(r.id)}">承認（削除しない）</button><button type="button" class="btn small danger" data-hospital-deletion-review="rejected" data-request-id="${escapeHtml(r.id)}">却下</button>`:"—"}</div></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">退会申請はありません。</div>`}`;
 }
 
 async function reviewHospitalDeletionRequest(id,decision){
@@ -1142,6 +1142,50 @@ async function previewHospitalDeletionRequest(id){
     ${notes.length?`<div class="notice"><strong>最終処理で必要な作業</strong><ul>${notes.map(x=>`<li>${escapeHtml(String(x))}</li>`).join("")}</ul></div>`:""}
     <p class="form-help">これはDB側で算出した現在の状態です。削除・利用停止・募集終了は一切行いません。</p>
     </div></section>`;
+}
+
+// Admin-only read-only call through the privileged Edge Function.
+// This button sends action=preview only. It never supplies action=execute.
+async function previewHospitalDeletionEdgeFunction(id){
+  if(state.profile?.role!=="admin" || state.profile?.status!=="active"){
+    return toast("有効な管理者アカウントでログインしてください");
+  }
+  const target=document.getElementById("hospital-deletion-preflight-result");
+  if(!target)return;
+  target.hidden=false;
+  target.innerHTML='<div class="notice">Edge Functionの安全確認を実行しています…</div>';
+  try{
+    const {data,error}=await state.supabase.functions.invoke("finalize-hospital-account-deletion",{
+      body:{action:"preview",request_id:id}
+    });
+    if(error){
+      target.innerHTML=`<div class="notice error">Edge Functionの安全確認に失敗しました：${escapeHtml(error.message||String(error))}</div>`;
+      return;
+    }
+    if(!data || data.ok!==true || data.mode!=="preview" || data.deletion_executed!==false){
+      target.innerHTML='<div class="notice error">安全確認の応答形式が想定と異なります。処理を中止してください。</div>';
+      return;
+    }
+    const blockers=Array.isArray(data.blocking_reasons)?data.blocking_reasons:[];
+    const rowItems=[
+      ["退会申請",HOSPITAL_ACCOUNT_DELETION_STATUSES[data.request_status]||data.request_status||"不明"],
+      ["公開中の募集",`${data.published_jobs??"—"}件`],
+      ["選考中の応募",`${data.ongoing_applications??"—"}件`],
+      ["対応中のスカウト",`${data.ongoing_scouts??"—"}件`]
+    ];
+    target.innerHTML=`<section class="panel" style="margin:14px 0">
+      <div class="panel-head">Edge Function動作確認（削除なし）</div>
+      <div class="panel-body">
+        <div class="notice success"><strong>Edge Functionから正常に応答がありました。</strong> 認証と安全確認処理の呼び出しに成功しました。</div>
+        <p><strong>実行モード：</strong>preview　<strong>アカウント削除：</strong>実行なし</p>
+        <p><strong>現在の退会可否：</strong>${data.preflight_passed===true?"条件達成":"条件未達成"}</p>
+        <div class="table-wrap"><table><tbody>${rowItems.map(([key,val])=>`<tr><th>${escapeHtml(key)}</th><td>${escapeHtml(String(val))}</td></tr>`).join("")}</tbody></table></div>
+        ${blockers.length?`<div class="notice warn"><strong>未解決の条件</strong><ul>${blockers.map(x=>`<li>${escapeHtml(String(x))}</li>`).join("")}</ul></div>`:""}
+        <p class="form-help">この操作は読み取り専用です。病院情報、募集、申請、認証アカウントは変更・削除していません。</p>
+      </div></section>`;
+  }catch(error){
+    target.innerHTML=`<div class="notice error">安全確認中にエラーが発生しました：${escapeHtml(error?.message||String(error))}</div>`;
+  }
 }
 
 function hospitalCreateForm(){return `<div class="panel"><div class="panel-head">病院情報登録</div><div class="panel-body"><form id="hospital-create-form" class="form-grid"><div class="field span2"><label>病院名</label><input name="name" required></div><div class="field"><label>都道府県</label><select name="prefecture" required>${optionList(PREFECTURES,"","選択してください")}</select></div><div class="field"><label>市区町村</label><input name="city" required></div><div class="field span2"><label>住所</label><input name="address" required></div><div class="field"><label>病院種別</label><input name="hospital_type" required placeholder="例：大学病院、一般病院"></div><div class="field"><label>公式Webサイト</label><input name="website" type="url" placeholder="https://..."></div><div class="field span2"><label>病院紹介</label><textarea name="description"></textarea></div><div class="field span2"><label>給与・待遇</label><textarea name="salary_text"></textarea></div><div class="field span2"><label>当直</label><textarea name="oncall_text"></textarea></div><div class="field span2"><label>救急体制</label><textarea name="emergency_text"></textarea></div><div class="span2"><button class="btn primary" type="submit">病院情報を登録する</button></div></form></div></div>`}
@@ -1359,6 +1403,7 @@ function bindEvents() {
   document.getElementById("hospital-delete-request-form")?.addEventListener("submit",submitHospitalAccountDeletionRequest);
   document.querySelectorAll("[data-hospital-deletion-review]").forEach(b=>b.addEventListener("click",()=>reviewHospitalDeletionRequest(b.dataset.requestId,b.dataset.hospitalDeletionReview)));
   document.querySelectorAll("[data-hospital-deletion-preflight]").forEach(b=>b.addEventListener("click",()=>previewHospitalDeletionRequest(b.dataset.hospitalDeletionPreflight)));
+  document.querySelectorAll("[data-hospital-deletion-edge-preview]").forEach(b=>b.addEventListener("click",()=>previewHospitalDeletionEdgeFunction(b.dataset.hospitalDeletionEdgePreview)));
   document.querySelectorAll("[data-verification-notification-read]").forEach(b=>b.addEventListener("click",()=>markVerificationNotificationRead(b.dataset.verificationNotificationRead)));
   document.querySelectorAll("[data-matching-notification-read]").forEach(b=>b.addEventListener("click",()=>markMatchingNotificationRead(b.dataset.matchingNotificationRead)));
   document.getElementById("verification-upload-form")?.addEventListener("submit",uploadVerificationDocument);
