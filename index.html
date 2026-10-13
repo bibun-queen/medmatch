@@ -575,7 +575,7 @@ async function studentVerificationPanel(studentProfile, uid) {
 async function adminVerificationPanel() {
   const {data:docs,error} = await state.supabase
     .from("verification_documents")
-    .select("id,user_id,kind,storage_path,status,review_note,created_at,reviewed_at,expires_at")
+    .select("id,user_id,kind,storage_path,status,review_note,created_at,reviewed_at,expires_at,file_deleted_at")
     .eq("kind","student_id")
     .order("created_at",{ascending:false})
     .limit(200);
@@ -593,7 +593,7 @@ async function adminVerificationPanel() {
   const ordered=[...records].sort((a,b)=>(a.status==="pending"?0:1)-(b.status==="pending"?0:1));
   return `<div class="toolbar"><h2>学生証審査</h2><span class="result-summary">審査待ち ${pending} 件 / 全 ${records.length} 件（直近200件）</span></div>
     <div class="notice">書類は外部に公開されません。「書類を見る」で60秒間有効な閲覧URLを発行します。氏名・大学名などを確認してから判定してください。</div>
-    ${ordered.length?`<div class="table-wrap"><table><thead><tr><th>提出者</th><th>提出日</th><th>状態</th><th>有効期限</th><th>書類</th><th>審査コメント</th><th>操作</th></tr></thead><tbody>${ordered.map(d=>`<tr><td>${escapeHtml(names.get(d.user_id)||d.user_id.slice(0,8))}</td><td>${fmtDate(d.created_at)}</td><td><span class="status ${escapeHtml(d.status)}">${escapeHtml(d.status==="approved" && d.expires_at && Date.parse(d.expires_at)<=Date.now()?"承認済み（期限切れ）":(DOC_STATUS_LABELS[d.status]||d.status))}</span></td><td>${d.expires_at?verificationDateJst(d.expires_at):"—"}</td><td><button type="button" class="btn small" data-verification-view="${escapeHtml(d.id)}">書類を見る</button></td><td>${escapeHtml(d.review_note||"—")}</td><td>${d.status==="pending"?`<div class="actions"><button type="button" class="btn small success" data-verification-review="${escapeHtml(d.id)}" data-approved="true">承認</button><button type="button" class="btn small danger" data-verification-review="${escapeHtml(d.id)}" data-approved="false">却下</button></div>`:d.status==="approved"?`<button type="button" class="btn small danger" data-verification-revoke="${escapeHtml(d.id)}">認証取消</button>`:"操作なし"}</td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">学生証の提出はまだありません。</div>`}`;
+    ${ordered.length?`<div class="table-wrap"><table><thead><tr><th>提出者</th><th>提出日</th><th>状態</th><th>有効期限</th><th>書類</th><th>審査コメント</th><th>操作</th></tr></thead><tbody>${ordered.map(d=>`<tr><td>${escapeHtml(names.get(d.user_id)||d.user_id.slice(0,8))}</td><td>${fmtDate(d.created_at)}</td><td><span class="status ${escapeHtml(d.status)}">${escapeHtml(d.status==="approved" && d.expires_at && Date.parse(d.expires_at)<=Date.now()?"承認済み（期限切れ）":(DOC_STATUS_LABELS[d.status]||d.status))}</span></td><td>${d.expires_at?verificationDateJst(d.expires_at):"—"}</td><td>${d.file_deleted_at?`<span class="form-help">画像削除済み（${verificationDateJst(d.file_deleted_at)}）</span>`:`<button type="button" class="btn small" data-verification-view="${escapeHtml(d.id)}">書類を見る</button>`}</td><td>${escapeHtml(d.review_note||"—")}</td><td>${d.status==="pending"?`<div class="actions"><button type="button" class="btn small success" data-verification-review="${escapeHtml(d.id)}" data-approved="true">承認</button><button type="button" class="btn small danger" data-verification-review="${escapeHtml(d.id)}" data-approved="false">却下</button></div>`:d.status==="approved"?`<button type="button" class="btn small danger" data-verification-revoke="${escapeHtml(d.id)}">認証取消</button>`:"操作なし"}</td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">学生証の提出はまだありません。</div>`}`;
 }
 
 async function uploadVerificationDocument(e) {
@@ -649,9 +649,10 @@ async function viewVerificationDocument(documentId) {
   tab.opener=null;
   try {
     const {data:doc,error:docError}=await state.supabase.from("verification_documents")
-      .select("storage_path").eq("id",documentId).maybeSingle();
+      .select("storage_path,file_deleted_at").eq("id",documentId).maybeSingle();
     if(docError) throw docError;
     if(!doc) throw new Error("書類が見つかりません");
+    if(doc.file_deleted_at) throw new Error("この学生証画像は保存期間の終了により削除されています");
     const {data,error}=await state.supabase.storage.from(VERIFY_BUCKET)
       .createSignedUrl(doc.storage_path,60);
     if(error) throw error;
