@@ -1074,7 +1074,7 @@ async function submitHospitalAccountDeletionRequest(e){
 async function adminHospitalDeletionPanel(hospitals,profiles){
   if(state.profile?.role!=="admin")return `<div class="notice error">管理者のみ閲覧できます。</div>`;
   const {data,error}=await state.supabase.from("hospital_account_deletion_requests")
-    .select("id,hospital_id,requested_by,reason,status,admin_note,created_at,reviewed_at")
+    .select("id,hospital_id,requested_by,reason,status,admin_note,created_at,reviewed_at,deletion_completed_at")
     .order("created_at",{ascending:false}).limit(200);
   if(error)return `<div class="notice error">退会申請を取得できません：${escapeHtml(error.message)}</div>`;
   const hospitalNames=new Map(hospitals.map(h=>[h.id,h.name]));
@@ -1083,7 +1083,8 @@ async function adminHospitalDeletionPanel(hospitals,profiles){
   return `<div class="toolbar"><h2>病院担当者の退会申請</h2><span class="result-summary">${rows.filter(r=>r.status==="pending").length} 件審査待ち</span></div>
     <div class="notice warn">「承認」は申請の審査結果を記録するだけです。ログインアカウント・病院情報・募集は削除されません。承認前に公開中の募集、進行中の応募・スカウト、他の担当者への引継ぎを確認してください。</div>
     <div id="hospital-deletion-preflight-result" hidden></div>
-    ${rows.length?`<div class="table-wrap"><table><thead><tr><th>申請日</th><th>病院</th><th>担当者</th><th>退会理由</th><th>状態</th><th>審査内容</th><th>操作</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${fmtDate(r.created_at)}</td><td>${escapeHtml(hospitalNames.get(r.hospital_id)||"病院情報なし")}</td><td>${escapeHtml(requesterNames.get(r.requested_by)||String(r.requested_by||"不明").slice(0,8)+"…")}</td><td>${escapeHtml(r.reason)}</td><td>${escapeHtml(HOSPITAL_ACCOUNT_DELETION_STATUSES[r.status]||r.status)}</td><td>${escapeHtml(r.admin_note||"—")}</td><td><div class="actions"><button type="button" class="btn small" data-hospital-deletion-preflight="${escapeHtml(r.id)}">退会可否を確認</button><button type="button" class="btn small" data-hospital-deletion-edge-preview="${escapeHtml(r.id)}">Edge Function動作確認（削除なし）</button>${r.status==="pending"?`<button type="button" class="btn small success" data-hospital-deletion-review="approved" data-request-id="${escapeHtml(r.id)}">承認（削除しない）</button><button type="button" class="btn small danger" data-hospital-deletion-review="rejected" data-request-id="${escapeHtml(r.id)}">却下</button>`:"—"}</div></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">退会申請はありません。</div>`}`;
+    <div id="hospital-test-final-deletion-form-container" hidden></div>
+    ${rows.length?`<div class="table-wrap"><table><thead><tr><th>申請日</th><th>病院</th><th>担当者</th><th>退会理由</th><th>状態</th><th>審査内容</th><th>操作</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${fmtDate(r.created_at)}</td><td>${escapeHtml(hospitalNames.get(r.hospital_id)||"病院情報なし")}</td><td>${escapeHtml(requesterNames.get(r.requested_by)||String(r.requested_by||"不明").slice(0,8)+"…")}</td><td>${escapeHtml(r.reason)}</td><td>${escapeHtml(HOSPITAL_ACCOUNT_DELETION_STATUSES[r.status]||r.status)}</td><td>${escapeHtml(r.admin_note||"—")}</td><td><div class="actions"><button type="button" class="btn small" data-hospital-deletion-preflight="${escapeHtml(r.id)}">退会可否を確認</button><button type="button" class="btn small" data-hospital-deletion-edge-preview="${escapeHtml(r.id)}">Edge Function動作確認（削除なし）</button>${r.id==="d3fc8189-755b-4329-b2fe-edd9782003db" && r.hospital_id==="e0a619a6-2fbf-481b-a1a3-5ca129bc051c" && r.requested_by==="570538bf-9031-4d21-b8e1-310d7dceeaab" && r.status==="approved" && !r.deletion_completed_at?`<button type="button" class="btn small danger" data-hospital-test-final-delete="${escapeHtml(r.id)}">テスト病院の最終退会</button>`:""}${r.deletion_completed_at?'<span class="status approved">退会処理完了</span>':''}${r.status==="pending"?`<button type="button" class="btn small success" data-hospital-deletion-review="approved" data-request-id="${escapeHtml(r.id)}">承認（削除しない）</button><button type="button" class="btn small danger" data-hospital-deletion-review="rejected" data-request-id="${escapeHtml(r.id)}">却下</button>`:"—"}</div></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">退会申請はありません。</div>`}`;
 }
 
 async function reviewHospitalDeletionRequest(id,decision){
@@ -1185,6 +1186,57 @@ async function previewHospitalDeletionEdgeFunction(id){
       </div></section>`;
   }catch(error){
     target.innerHTML=`<div class="notice error">安全確認中にエラーが発生しました：${escapeHtml(error?.message||String(error))}</div>`;
+  }
+}
+
+// Only shown for one explicitly authorized test account. Edge Function enforces this independently.
+function openHospitalTestFinalDeletionForm(requestId){
+  if(requestId!=="d3fc8189-755b-4329-b2fe-edd9782003db" || state.profile?.role!=="admin" || state.profile?.status!=="active")return;
+  const container=document.getElementById("hospital-test-final-deletion-form-container");
+  if(!container)return;
+  container.hidden=false;
+  container.innerHTML=`<section class="panel" style="margin:14px 0">
+    <div class="panel-head">テスト病院：最終退会の実行確認</div>
+    <div class="panel-body">
+      <div class="notice warn"><strong>元に戻せない操作です。</strong>「テスト病院」の唯一の担当者アカウントを完全削除します。病院は利用停止となり、公開中の募集は自動終了します。過去の募集記録は保持します。</div>
+      <p><strong>病院：</strong>テスト病院　<strong>対象申請：</strong><code>d3fc8189-755b-4329-b2fe-edd9782003db</code></p>
+      <form id="hospital-test-final-delete-form" autocomplete="off">
+        <div class="field"><label>確認のため「テスト病院」と入力</label><input name="hospital_name" required autocomplete="off" placeholder="テスト病院"></div>
+        <div class="field"><label>現在の管理者パスワードを再入力</label><input name="admin_password" type="password" autocomplete="current-password" required minlength="8"></div>
+        <div class="actions" style="margin-top:16px"><button class="btn danger" type="submit">テスト病院の担当者アカウントを完全削除</button><button class="btn" type="button" id="hospital-test-final-cancel">キャンセル</button></div>
+      </form>
+    </div></section>`;
+  document.getElementById("hospital-test-final-delete-form")?.addEventListener("submit",executeHospitalTestFinalDeletion);
+  document.getElementById("hospital-test-final-cancel")?.addEventListener("click",()=>{container.hidden=true;container.innerHTML="";});
+  container.scrollIntoView({block:"nearest",behavior:"smooth"});
+}
+async function executeHospitalTestFinalDeletion(e){
+  e.preventDefault();
+  if(state.profile?.role!=="admin"||state.profile?.status!=="active")return toast("管理者権限が必要です");
+  const form=e.currentTarget;
+  const fields=new FormData(form);
+  const hospitalName=String(fields.get("hospital_name")||"");
+  const password=String(fields.get("admin_password")||"");
+  if(hospitalName!=="テスト病院")return toast("確認用の病院名が一致しません");
+  if(password.length<8 || password.length>256)return toast("管理者パスワードを確認してください");
+  const msg="【最終確認】テスト病院の担当者アカウントを完全削除し、病院を利用停止、公開中の募集を終了します。元に戻せません。実行しますか？";
+  if(!window.confirm(msg))return;
+  const button=form.querySelector('button[type="submit"]');
+  if(button)button.disabled=true;
+  form.querySelector('input[name="admin_password"]').value="";
+  try{
+    const {data,error}=await state.supabase.functions.invoke("finalize-hospital-account-deletion",{
+      body:{action:"execute",request_id:"d3fc8189-755b-4329-b2fe-edd9782003db",hospital_name:hospitalName,
+        confirmation:"DELETE_HOSPITAL_STAFF_ACCOUNT",password}
+    });
+    if(error){throw new Error(data?.message||error.message||"退会処理で通信エラーが発生しました");}
+    if(data?.ok!==true || data?.deleted!==true){throw new Error(data?.message||"退会完了を確認できません。再実行せず管理者に確認してください");}
+    toast("テスト病院の担当者アカウント削除が完了しました");
+    await loadPublicJobs();
+    await render();
+  }catch(error){
+    dbError(error,"最終退会処理の結果を確認できませんでした。状態確認前に再実行しないでください");
+    if(button)button.disabled=false;
   }
 }
 
@@ -1404,6 +1456,7 @@ function bindEvents() {
   document.querySelectorAll("[data-hospital-deletion-review]").forEach(b=>b.addEventListener("click",()=>reviewHospitalDeletionRequest(b.dataset.requestId,b.dataset.hospitalDeletionReview)));
   document.querySelectorAll("[data-hospital-deletion-preflight]").forEach(b=>b.addEventListener("click",()=>previewHospitalDeletionRequest(b.dataset.hospitalDeletionPreflight)));
   document.querySelectorAll("[data-hospital-deletion-edge-preview]").forEach(b=>b.addEventListener("click",()=>previewHospitalDeletionEdgeFunction(b.dataset.hospitalDeletionEdgePreview)));
+  document.querySelectorAll("[data-hospital-test-final-delete]").forEach(b=>b.addEventListener("click",()=>openHospitalTestFinalDeletionForm(b.dataset.hospitalTestFinalDelete)));
   document.querySelectorAll("[data-verification-notification-read]").forEach(b=>b.addEventListener("click",()=>markVerificationNotificationRead(b.dataset.verificationNotificationRead)));
   document.querySelectorAll("[data-matching-notification-read]").forEach(b=>b.addEventListener("click",()=>markMatchingNotificationRead(b.dataset.matchingNotificationRead)));
   document.getElementById("verification-upload-form")?.addEventListener("submit",uploadVerificationDocument);
