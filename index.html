@@ -1074,7 +1074,7 @@ async function submitHospitalAccountDeletionRequest(e){
 async function adminHospitalDeletionPanel(hospitals,profiles){
   if(state.profile?.role!=="admin")return `<div class="notice error">管理者のみ閲覧できます。</div>`;
   const {data,error}=await state.supabase.from("hospital_account_deletion_requests")
-    .select("id,hospital_id,requested_by,reason,status,admin_note,created_at,reviewed_at,deletion_completed_at")
+    .select("id,hospital_id,requested_by,reason,status,admin_note,created_at,reviewed_at,deletion_completed_at,deletion_started_at,deletion_error")
     .order("created_at",{ascending:false}).limit(200);
   if(error)return `<div class="notice error">退会申請を取得できません：${escapeHtml(error.message)}</div>`;
   const hospitalNames=new Map(hospitals.map(h=>[h.id,h.name]));
@@ -1083,7 +1083,7 @@ async function adminHospitalDeletionPanel(hospitals,profiles){
   return `<div class="toolbar"><h2>病院担当者の退会申請</h2><span class="result-summary">${rows.filter(r=>r.status==="pending").length} 件審査待ち</span></div>
     <div class="notice warn">「承認」は申請の審査結果を記録するだけです。ログインアカウント・病院情報・募集は削除されません。承認前に公開中の募集、進行中の応募・スカウト、他の担当者への引継ぎを確認してください。</div>
     <div id="hospital-deletion-preflight-result" hidden></div>
-    ${rows.length?`<div class="table-wrap"><table><thead><tr><th>申請日</th><th>病院</th><th>担当者</th><th>退会理由</th><th>状態</th><th>審査内容</th><th>操作</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${fmtDate(r.created_at)}</td><td>${escapeHtml(hospitalNames.get(r.hospital_id)||"病院情報なし")}</td><td>${escapeHtml(requesterNames.get(r.requested_by)||String(r.requested_by||"不明").slice(0,8)+"…")}</td><td>${escapeHtml(r.reason)}</td><td>${escapeHtml(HOSPITAL_ACCOUNT_DELETION_STATUSES[r.status]||r.status)}</td><td>${escapeHtml(r.admin_note||"—")}</td><td><div class="actions"><button type="button" class="btn small" data-hospital-deletion-preflight="${escapeHtml(r.id)}">退会可否を確認</button><button type="button" class="btn small" data-hospital-deletion-edge-preview="${escapeHtml(r.id)}">Edge Function動作確認（削除なし）</button>${r.deletion_completed_at?'<span class="status approved">退会処理完了</span>':''}${r.status==="pending"?`<button type="button" class="btn small success" data-hospital-deletion-review="approved" data-request-id="${escapeHtml(r.id)}">承認（削除しない）</button><button type="button" class="btn small danger" data-hospital-deletion-review="rejected" data-request-id="${escapeHtml(r.id)}">却下</button>`:"—"}</div></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">退会申請はありません。</div>`}`;
+    ${rows.length?`<div class="table-wrap"><table><thead><tr><th>申請日</th><th>病院</th><th>担当者</th><th>退会理由</th><th>状態</th><th>審査内容</th><th>操作</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${fmtDate(r.created_at)}</td><td>${escapeHtml(hospitalNames.get(r.hospital_id)||"病院情報なし")}</td><td>${escapeHtml(requesterNames.get(r.requested_by)||String(r.requested_by||"不明").slice(0,8)+"…")}</td><td>${escapeHtml(r.reason)}</td><td>${escapeHtml(HOSPITAL_ACCOUNT_DELETION_STATUSES[r.status]||r.status)}</td><td>${escapeHtml(r.admin_note||"—")}</td><td><div class="actions"><button type="button" class="btn small" data-hospital-deletion-preflight="${escapeHtml(r.id)}">退会可否を確認</button><button type="button" class="btn small" data-hospital-deletion-edge-preview="${escapeHtml(r.id)}">Edge Function動作確認（削除なし）</button>${r.deletion_completed_at?'<span class="status approved">退会処理完了</span>':''}${r.status==="approved"&&!r.deletion_started_at&&!r.deletion_completed_at?`<button type="button" class="btn small danger" data-hospital-deletion-finalize="${escapeHtml(r.id)}" ${ENABLE_HOSPITAL_FINAL_DELETION_UI?"":"disabled"}>最終退会処理</button>`:""}${r.deletion_started_at&&!r.deletion_completed_at?'<span class="status">処理開始済み・手動確認が必要</span>':""}${r.status==="pending"?`<button type="button" class="btn small success" data-hospital-deletion-review="approved" data-request-id="${escapeHtml(r.id)}">承認（削除しない）</button><button type="button" class="btn small danger" data-hospital-deletion-review="rejected" data-request-id="${escapeHtml(r.id)}">却下</button>`:"—"}</div></td></tr>`).join("")}</tbody></table></div>`:`<div class="empty">退会申請はありません。</div>`}`;
 }
 
 async function reviewHospitalDeletionRequest(id,decision){
@@ -1142,6 +1142,85 @@ async function previewHospitalDeletionRequest(id){
     ${notes.length?`<div class="notice"><strong>最終処理で必要な作業</strong><ul>${notes.map(x=>`<li>${escapeHtml(String(x))}</li>`).join("")}</ul></div>`:""}
     <p class="form-help">これはDB側で算出した現在の状態です。削除・利用停止・募集終了は一切行いません。</p>
     </div></section>`;
+}
+
+// This is a release gate; keep false until server-side deletion tests pass.
+const ENABLE_HOSPITAL_FINAL_DELETION_UI = false;
+
+function askHospitalFinalDeletionConfirmation(hospitalName, personName){
+  return new Promise(resolve=>{
+    const dialog=document.createElement("dialog");
+    dialog.style.cssText="max-width:540px;width:calc(100% - 32px);border:1px solid #d0d5dd;border-radius:14px;padding:24px;color:#1d2939";
+    dialog.innerHTML=`<form method="dialog">
+      <h2>病院担当者の最終退会</h2>
+      <p>対象病院：<strong>${escapeHtml(hospitalName)}</strong></p>
+      <p>削除対象：<strong>${escapeHtml(personName)}</strong></p>
+      <p>アカウント削除後は元に戻せません。病院名を正確に入力してください。</p>
+      <div class="field"><label>病院名</label><input name="hospital-name" required autocomplete="off"></div>
+      <div class="field"><label>管理者の現在のパスワード</label><input name="admin-password" type="password" autocomplete="current-password" required minlength="8" maxlength="256"></div>
+      <div class="actions"><button type="submit" class="btn" value="cancel" formnovalidate>取り消す</button><button type="submit" class="btn danger" value="execute">最終退会処理を実行</button></div>
+    </form>`;
+    const form=dialog.querySelector("form");
+    const nameInput=dialog.querySelector('input[name="hospital-name"]');
+    const passInput=dialog.querySelector('input[name="admin-password"]');
+    // Validate before closing; no password is put in prompt, URL, logs or storage.
+    form.addEventListener("submit",e=>{
+      if(e.submitter?.value==="execute"&&nameInput.value!==hospitalName){
+        e.preventDefault();
+        toast("病院名が一致しません");
+      }
+    });
+    dialog.addEventListener("close",()=>{
+      const outcome=dialog.returnValue==="execute" && nameInput.value===hospitalName
+        ? {hospital_name:nameInput.value,password:passInput.value}:null;
+      passInput.value="";
+      dialog.remove();
+      resolve(outcome);
+    },{once:true});
+    document.body.appendChild(dialog);
+    dialog.showModal();
+  });
+}
+
+async function finalizeHospitalDeletionRequest(requestId){
+  if(!ENABLE_HOSPITAL_FINAL_DELETION_UI)return toast("最終退会処理は現在無効です");
+  if(state.profile?.role!=="admin" || state.profile?.status!=="active")return toast("管理者権限が必要です");
+  // Server recomputes the deletion preflight, the browser does not choose the target user.
+  const {data:preview,error:previewError}=await state.supabase.functions.invoke(
+    "finalize-hospital-account-deletion",{body:{action:"preview",request_id:requestId}}
+  );
+  if(previewError || preview?.ok!==true || preview.mode!=="preview" ||
+     preview.deletion_executed!==false || preview.preflight_passed!==true ||
+     preview.request_status!=="approved" || preview.request_id!==requestId ||
+     !Array.isArray(preview.blocking_reasons) || preview.blocking_reasons.length ||
+     typeof preview.hospital_name!=="string" || !preview.hospital_name.trim() ||
+     typeof preview.requester_name!=="string" || !preview.requester_name.trim()){
+    return toast("削除前のサーバー検証が通りませんでした。何も削除していません");
+  }
+  const confirmation=await askHospitalFinalDeletionConfirmation(preview.hospital_name,preview.requester_name);
+  if(!confirmation)return;
+  // Separate confirmation explicitly asks for an irreversible action.
+  if(!window.confirm("アカウント削除は取り消せません。本当に最終退会を実行しますか？"))return;
+  let result;
+  try{
+    result=await state.supabase.functions.invoke("finalize-hospital-account-deletion",{
+      body:{action:"execute",request_id:requestId,
+        hospital_name:confirmation.hospital_name,
+        confirmation:"DELETE_HOSPITAL_STAFF_ACCOUNT",
+        password:confirmation.password}
+    });
+  }catch(e){
+    toast("退会処理の結果が不明です。再実行せず管理者がDBと監査ログを確認してください");
+    return;
+  }finally{
+    confirmation.password="";
+  }
+  if(result.error || result.data?.ok!==true || result.data?.deletion_executed!==true){
+    toast("退会完了を確認できません。再実行せず管理者が状態を確認してください");
+    return;
+  }
+  toast("退会処理が完了しました");
+  await render();
 }
 
 // Admin-only read-only call through the privileged Edge Function.
@@ -1404,6 +1483,7 @@ function bindEvents() {
   document.querySelectorAll("[data-hospital-deletion-review]").forEach(b=>b.addEventListener("click",()=>reviewHospitalDeletionRequest(b.dataset.requestId,b.dataset.hospitalDeletionReview)));
   document.querySelectorAll("[data-hospital-deletion-preflight]").forEach(b=>b.addEventListener("click",()=>previewHospitalDeletionRequest(b.dataset.hospitalDeletionPreflight)));
   document.querySelectorAll("[data-hospital-deletion-edge-preview]").forEach(b=>b.addEventListener("click",()=>previewHospitalDeletionEdgeFunction(b.dataset.hospitalDeletionEdgePreview)));
+  document.querySelectorAll("[data-hospital-deletion-finalize]").forEach(b=>b.addEventListener("click",()=>finalizeHospitalDeletionRequest(b.dataset.hospitalDeletionFinalize)));
   document.querySelectorAll("[data-verification-notification-read]").forEach(b=>b.addEventListener("click",()=>markVerificationNotificationRead(b.dataset.verificationNotificationRead)));
   document.querySelectorAll("[data-matching-notification-read]").forEach(b=>b.addEventListener("click",()=>markMatchingNotificationRead(b.dataset.matchingNotificationRead)));
   document.getElementById("verification-upload-form")?.addEventListener("submit",uploadVerificationDocument);
